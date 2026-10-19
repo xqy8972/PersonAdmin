@@ -161,7 +161,7 @@ const { createApp, ref, reactive, computed, watch, onMounted, onBeforeUnmount } 
 const { ElMessage, ElMessageBox } = ElementPlus;
 
 /* ---------------- HTTP 接口层（对应 api_design.md，域名可改） ---------------- */
-const API_BASE = 'http://localhost:8090/api';
+const API_BASE = 'http://localhost:8089/api';
 
 /* 凭证双存储：勾选「30天保持登录」存 localStorage（长期），否则存 sessionStorage（关浏览器即失效） */
 const store = {
@@ -1711,23 +1711,44 @@ const InvestTrendChart = {
           guard++;
         }
       }
-      // 投入口径：按交易台账 BUY 金额（清仓后投资行的 amount 已清零，直接用它投入会丢失历史）；
+      // 持仓成本口径（摊薄成本，与同花顺一致）：累计买入金额 − 累计卖出金额，
+      // 「总市值 − 持仓成本」即总盈亏（含已落袋部分），清仓时两者一起归零；
+      // 「新增投入」线只统计买入金额（不出现负数）；
       // 无台账的老投资（直接录金额的类型）退回按买入日 + 投入金额
       const tradesArr = await Promise.all(invs.map(inv =>
         apiGet('/investment/' + inv.id + '/trades').catch(() => [])));
       const buyByDay = {};
+      const costDeltaByDay = {};
       invs.forEach((inv, k) => {
-        const ts = Array.isArray(tradesArr[k]) ? tradesArr[k] : [];
-        ts.filter(t => t.tradeType === 'BUY').forEach(t => {
+        const ts = (Array.isArray(tradesArr[k]) ? tradesArr[k] : []).slice()
+          .sort((a, b) => (a.tradeDate || '').localeCompare(b.tradeDate || ''));
+        ts.forEach(t => {
           const d = (t.tradeDate || '').slice(0, 10);
-          if (d) buyByDay[d] = (buyByDay[d] || 0) + num(t.amount);
+          if (!d) return;
+          if (t.tradeType === 'BUY') {
+            buyByDay[d] = (buyByDay[d] || 0) + num(t.amount);
+            costDeltaByDay[d] = (costDeltaByDay[d] || 0) + num(t.amount);
+          } else if (t.tradeType === 'SELL') {
+            // 摊薄口径：卖出按成交金额全额扣减成本（卖出盈利抵减成本），与平均成本法的差异即已实现盈亏
+            costDeltaByDay[d] = (costDeltaByDay[d] || 0) - num(t.amount);
+          }
         });
         if (ts.length === 0 && inv.buyDate && num(inv.amount) > 0) {
           buyByDay[inv.buyDate] = (buyByDay[inv.buyDate] || 0) + num(inv.amount);
+          costDeltaByDay[inv.buyDate] = (costDeltaByDay[inv.buyDate] || 0) + num(inv.amount);
         }
       });
-      const daily = days.map(day => buyByDay[day] || 0);
-      const cumulative = daily.reduce((arr, v) => { arr.push((arr.length ? arr[arr.length - 1] : 0) + v); return arr; }, []);
+      // 「新增投入」线：只统计买入金额，不出现负数
+      const daily = days.map(day => Math.round((buyByDay[day] || 0) * 100) / 100);
+      // 「持仓成本」线：每日成本净变动（买入为正、卖出按成交金额扣减为负）的累加，跨天自然延续
+      const cumulative = [];
+      {
+        let lastC = 0;
+        days.forEach(day => {
+          lastC += costDeltaByDay[day] || 0;
+          cumulative.push(Math.round(lastC * 100) / 100);
+        });
+      }
       const trends = await Promise.all(invs.map(inv =>
         apiGet('/investment/' + inv.id + '/trend', { start: start, end: end }).catch(() => [])));
       // 服务重启窗口等请求失败时保留旧图不重绘，避免画出误导性的全零曲线
@@ -1752,7 +1773,7 @@ const InvestTrendChart = {
           trigger: 'axis',
           valueFormatter: v => '¥ ' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })
         },
-        legend: { data: ['新增投入', '累计投入', '总市值'], top: 8, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
+        legend: { data: ['新增投入', '持仓成本', '总市值'], top: 8, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
         grid: { left: 70, right: 24, top: 48, bottom: 32 },
         xAxis: {
           type: 'category', boundaryGap: false, data: days.map(m => m.slice(2)),
@@ -1772,7 +1793,7 @@ const InvestTrendChart = {
             areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(0,122,255,0.22)' }, { offset: 1, color: 'rgba(0,122,255,0.02)' }]) }
           },
           {
-            name: '累计投入', type: 'line', smooth: false, symbol: 'none',
+            name: '持仓成本', type: 'line', smooth: false, symbol: 'none',
             data: cumulative,
             lineStyle: { width: 2, type: 'dashed', color: '#8e8e93' }, itemStyle: { color: '#8e8e93' }
           },
@@ -2375,6 +2396,8 @@ const LoginPage = {
       if (!form.value.password) { ElMessage.warning('请输入密码'); return; }
       loading.value = true;
       try {
+        // 注册功能已暂时下线（UI 入口已隐藏），此处强制走登录，防直达残留状态
+        isLogin.value = true;
         if (isLogin.value) {
           const d = await apiPost('/auth/login', { username: form.value.username.trim(), password: form.value.password });
           store.set('token', d.token || '', remember.value);
@@ -2412,10 +2435,12 @@ const LoginPage = {
         <el-checkbox v-model="remember">30天内保持登录</el-checkbox>
       </el-form-item>
       <el-button type="primary" size="large" style="width:100%;letter-spacing:4px" :loading="loading" @click="handleSubmit">{{ isLogin ? '登 录' : '注 册' }}</el-button>
+      <!-- 注册入口已暂时下线，保留代码便于恢复：
       <div class="login-toggle">
         <span v-if="isLogin">还没有账号？<a @click="isLogin = false">立即注册</a></span>
         <span v-else>已有账号？<a @click="isLogin = true">返回登录</a></span>
       </div>
+      -->
     </el-form>
   </div>`
 };
