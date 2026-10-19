@@ -40,6 +40,9 @@ public class ExpenseService {
     @Autowired
     private InvestmentMapper investmentMapper;
 
+    @Autowired
+    private InvestmentService investmentService;
+
     /** 支出分类「投资」：只涉及资产↔投资划转，不计入支出统计（统计 SQL 已排除） */
     private static final String CATEGORY_INVEST = "投资";
 
@@ -163,6 +166,8 @@ public class ExpenseService {
             return;
         }
         investmentMapper.adjustValue(inv.getId(), userId, expense.getAmount());
+        // 记台账：支出转入投资的投入金额是台账的一部分，amount 由台账净额统一维护
+        investmentService.recordAmountTrade(userId, inv.getId(), expense.getAmount(), expense.getRecordDate());
     }
 
     /** 回滚旧支出记录的投资联动（编辑/删除时调用；渠道同步投资从未联动过，天然跳过） */
@@ -180,6 +185,8 @@ public class ExpenseService {
             return;
         }
         investmentMapper.adjustValue(inv.getId(), userId, old.getAmount().negate());
+        // 回滚台账：对应的正向 BUY 台账抵销（净额回落）
+        investmentService.recordAmountTrade(userId, inv.getId(), old.getAmount().negate(), old.getRecordDate());
     }
 
     /**

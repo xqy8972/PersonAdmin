@@ -400,6 +400,9 @@ public class InvestmentService {
             throw BizException.badRequest("标的不存在或不属于当前用户");
         }
         recordDeltaTrade(userId, id, old.getType(), tradeSharesDelta, tradeAmountDelta, tradePrice);
+        // 台账已记 delta 交易：amount 以台账净额为准重新同步（渠道标的在 sync 内自动跳过）
+        syncAmountFromTrades(userId, id, old.getSourceChannel());
+        investment.setAmount(tradeMapper.netAmount(id, userId).setScale(2, RoundingMode.HALF_UP));
         // 买入日期被改到过去：在新买入日回写一条投资快照，历史折线同步生效
         LocalDate buyDate = investment.getBuyDate();
         if (buyDate.isBefore(LocalDate.now())
@@ -467,6 +470,45 @@ public class InvestmentService {
     }
 
     /**
+     * 台账净额同步 investment.amount：investment_trade 是 amount 的唯一权威来源
+     * （摊薄口径：累计买入 − 累计卖出，与同花顺一致）。渠道同步标的的 amount 由
+     * 渠道侧维护且无台账，绝不能用净额覆盖，必须跳过。
+     */
+    private void syncAmountFromTrades(Long userId, Long investmentId, String sourceChannel) {
+        if (StringUtils.hasText(sourceChannel)) {
+            return;
+        }
+        investmentMapper.updateAmount(investmentId, userId,
+                tradeMapper.netAmount(investmentId, userId).setScale(2, RoundingMode.HALF_UP));
+    }
+
+    /**
+     * 记录一笔金额型台账（支出-投资联动用）：delta&gt;0 记 BUY，delta&lt;0 记 SELL。
+     * 金额型交易无股数/单价（shares/price 传 null），记完同步 investment.amount。
+     */
+    @Transactional
+    public void recordAmountTrade(Long userId, Long investmentId, BigDecimal deltaAmount, LocalDate tradeDate) {
+        if (deltaAmount == null || deltaAmount.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
+        Investment inv = investmentMapper.findById(investmentId, userId);
+        if (inv == null) {
+            throw BizException.badRequest("标的不存在或不属于当前用户");
+        }
+        InvestmentTrade trade = new InvestmentTrade();
+        trade.setUserId(userId);
+        trade.setInvestmentId(investmentId);
+        trade.setTradeType(deltaAmount.compareTo(BigDecimal.ZERO) > 0
+                ? InvestmentTrade.TYPE_BUY : InvestmentTrade.TYPE_SELL);
+        trade.setTradeDate(tradeDate != null ? tradeDate : LocalDate.now());
+        trade.setShares(null);
+        trade.setPrice(null);
+        trade.setAmount(deltaAmount.abs().setScale(2, RoundingMode.HALF_UP));
+        tradeMapper.insert(trade);
+        syncAmountFromTrades(userId, investmentId, inv.getSourceChannel());
+    }
+
+    /**
      * 卖出投资：卖出所得回到回款资产（现金/银行卡），不产生收入记录。
      * 股票/基金按「卖出份额 + 卖出单价」（单价留空按当前市值/份额折算，基金净值为人民币）；
      * 其他类型按「卖出金额」。全额卖出不清仓：行保留（份额/市值/投入清零）+ 历史保留。
@@ -489,12 +531,10 @@ public class InvestmentService {
             throw BizException.badRequest("卖出日期不能晚于今天");
         }
 
-        BigDecimal oldAmount = old.getAmount() == null ? BigDecimal.ZERO : old.getAmount();
         BigDecimal oldValue = old.getCurrentValue() == null ? BigDecimal.ZERO : old.getCurrentValue();
 
         BigDecimal proceeds;
         BigDecimal tradeFee;
-        BigDecimal newAmount;
         BigDecimal newValue;
         Integer newShares = null;
         if (isShareBased(old.getType())) {
@@ -538,17 +578,7 @@ public class InvestmentService {
             newValue = unitPrice.multiply(BigDecimal.valueOf(newShares))
                     .multiply(fx)
                     .setScale(2, RoundingMode.HALF_UP);
-            // 剩余成本 = 原投入 × 剩余股数/原股数（按比例结转成本，盈亏计算才准确）
-            if (oldShares > 0 && oldAmount.compareTo(BigDecimal.ZERO) > 0) {
-                newAmount = oldAmount.multiply(BigDecimal.valueOf(newShares))
-                        .divide(BigDecimal.valueOf(oldShares), 2, RoundingMode.HALF_UP);
-            } else {
-                newAmount = oldAmount.multiply(
-                                newValue.compareTo(BigDecimal.ZERO) == 0 || oldValue.compareTo(BigDecimal.ZERO) == 0
-                                        ? BigDecimal.ZERO
-                                        : newValue.divide(oldValue, 4, RoundingMode.HALF_UP))
-                        .setScale(2, RoundingMode.HALF_UP);
-            }
+            // 投入金额不再按比例结转：记完台账后统一按净额（Σ买−Σ卖）重算，见下方
         } else {
             if (sell.getAmount() == null || sell.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
                 throw BizException.badRequest("请填写卖出金额");
@@ -560,7 +590,6 @@ public class InvestmentService {
             // 金额型卖出不按公式收手续费，记录显式传入的单笔手续费（未传记 0）
             tradeFee = sell.getFee() != null ? sell.getFee().setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO.setScale(2);
             newValue = oldValue.subtract(proceeds);
-            newAmount = oldAmount.subtract(proceeds).max(BigDecimal.ZERO);
         }
 
         // 资产调整仅限「今天」成交的买卖：历史日期是补录，资金变动早已体现在当前余额里，
@@ -587,10 +616,14 @@ public class InvestmentService {
         sellTrade.setTargetAssetId(sell.getAssetId());
         tradeMapper.insert(sellTrade);
 
+        // 投入金额 = 台账净额（Σ买 − Σ卖，摊薄口径，与同花顺一致）：
+        // 清仓后也不一定为 0（累计卖出超过买入时净额为负，同花顺即如此展示）
+        BigDecimal netAmount = tradeMapper.netAmount(id, userId).setScale(2, RoundingMode.HALF_UP);
+
         boolean fullySold = BigDecimal.ZERO.compareTo(newValue) == 0
                 || (newShares != null && newShares == 0);
         if (fullySold) {
-            // 清仓不删除标的：行保留（份额/市值/投入清零），历史快照保留，
+            // 清仓不删除标的：行保留（份额/市值清零，投入为台账净额），历史快照保留，
             // 总盈亏走势仍体现该标的的历史盈亏；后续重新买入在此行上累加
             Investment upd = new Investment();
             upd.setId(id);
@@ -598,7 +631,7 @@ public class InvestmentService {
             upd.setName(old.getName());
             upd.setType(old.getType());
             upd.setCode(old.getCode());
-            upd.setAmount(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            upd.setAmount(netAmount);
             upd.setCurrentValue(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
             upd.setShares(isShareBased(old.getType()) ? 0 : null);
             upd.setSourceAssetId(old.getSourceAssetId());
@@ -608,7 +641,7 @@ public class InvestmentService {
             upd.setBuyDate(old.getBuyDate());
             upd.setRemark(old.getRemark());
             investmentMapper.update(upd);
-            recordSellSnapshot(userId, old, BigDecimal.ZERO, BigDecimal.ZERO, 0, tradeDate);
+            recordSellSnapshot(userId, old, BigDecimal.ZERO, netAmount, 0, tradeDate);
             return;
         }
 
@@ -618,7 +651,7 @@ public class InvestmentService {
         upd.setName(old.getName());
         upd.setType(old.getType());
         upd.setCode(old.getCode());
-        upd.setAmount(newAmount);
+        upd.setAmount(netAmount);
         upd.setCurrentValue(newValue);
         upd.setShares(newShares);
         upd.setSourceAssetId(old.getSourceAssetId());
@@ -629,7 +662,7 @@ public class InvestmentService {
         if (investmentMapper.update(upd) == 0) {
             throw BizException.badRequest("标的不存在或不属于当前用户");
         }
-        recordSellSnapshot(userId, old, newValue, newAmount, newShares, tradeDate);
+        recordSellSnapshot(userId, old, newValue, netAmount, newShares, tradeDate);
     }
 
     /**
@@ -692,8 +725,6 @@ public class InvestmentService {
 
         int oldShares = old.getShares() == null ? 0 : old.getShares();
         int newShares = oldShares + buy.getShares();
-        BigDecimal oldAmount = old.getAmount() == null ? BigDecimal.ZERO : old.getAmount();
-        BigDecimal newAmount = oldAmount.add(cost);
         // 加仓后市值按最新行情价计算（与列表实时口径一致），无行情时退回按买入价
         BigDecimal marketPrice = null;
         if (StringUtils.hasText(old.getCode())) {
@@ -718,13 +749,16 @@ public class InvestmentService {
         buyTrade.setRemark(buy.getRemark() == null ? "" : buy.getRemark());
         tradeMapper.insert(buyTrade);
 
+        // 投入金额 = 台账净额（Σ买 − Σ卖，摊薄口径），新增买入后同步
+        BigDecimal netAmount = tradeMapper.netAmount(id, userId).setScale(2, RoundingMode.HALF_UP);
+
         Investment upd = new Investment();
         upd.setId(id);
         upd.setUserId(userId);
         upd.setName(old.getName());
         upd.setType(old.getType());
         upd.setCode(old.getCode());
-        upd.setAmount(newAmount);
+        upd.setAmount(netAmount);
         upd.setCurrentValue(newValue);
         upd.setShares(newShares);
         upd.setSourceAssetId(old.getSourceAssetId());
@@ -910,9 +944,10 @@ public class InvestmentService {
     }
 
     /**
-     * 投资盈亏走势：按天聚合投资快照的（总市值 - 累计投入），并叠加台账累计已实现盈亏。
-     * 新增投资/加仓/卖出/每日收盘落库都会留快照，曲线随操作与行情逐日变化；
-     * 清仓后市值与投入都归零，但已落袋的盈亏（卖出所得 - 卖出部分成本，平均成本法）保留在曲线中。
+     * 投资盈亏走势：按天聚合投资快照的（总市值 − 台账累计净投入），摊薄口径（与同花顺一致）。
+     * 每日净投入 = 截至当日的 Σ买入金额 − Σ卖出金额；清仓后市值归零，净投入为负，
+     * 盈亏冻结在清仓时刻（不再随行情波动），卖出后重新买入在同一曲线上累加。
+     * 新增/加仓/卖出/每日收盘落库都会留快照，曲线随操作与行情逐日变化。
      */
     public List<Map<String, Object>> profitTrend(String start, String end) {
         Long userId = UserContext.getUserId();
@@ -921,47 +956,31 @@ public class InvestmentService {
         if (startDate.isAfter(endDate)) {
             throw BizException.badRequest("start 不能晚于 end");
         }
-        // 已实现盈亏：逐标的按台账演进份额与成本，每笔 SELL 的落袋盈亏记到交易日
-        Map<LocalDate, BigDecimal> realizedByDay = new TreeMap<>();
+        // 每日净投入变动：BUY +amount、SELL −amount，按交易日聚合
+        Map<LocalDate, BigDecimal> netByDay = new TreeMap<>();
         for (Investment inv : investmentMapper.list(userId)) {
-            int shares = 0;
-            BigDecimal cost = BigDecimal.ZERO;
             for (InvestmentTrade t : tradeMapper.listByInvestment(inv.getId(), userId)) {
-                if (InvestmentTrade.TYPE_BUY.equals(t.getTradeType())) {
-                    shares += t.getShares() == null ? 0 : t.getShares();
-                    cost = cost.add(t.getAmount() == null ? BigDecimal.ZERO : t.getAmount());
-                } else {
-                    int sold = Math.min(t.getShares() == null ? 0 : t.getShares(), shares);
-                    BigDecimal costPart = BigDecimal.ZERO;
-                    if (shares > 0 && sold > 0) {
-                        costPart = cost.multiply(BigDecimal.valueOf(sold))
-                                .divide(BigDecimal.valueOf(shares), 2, RoundingMode.HALF_UP);
-                        cost = cost.subtract(costPart);
-                    }
-                    shares -= sold;
-                    BigDecimal realized = (t.getAmount() == null ? BigDecimal.ZERO : t.getAmount())
-                            .subtract(costPart);
-                    realizedByDay.merge(t.getTradeDate(), realized, BigDecimal::add);
-                }
+                BigDecimal signed = (InvestmentTrade.TYPE_BUY.equals(t.getTradeType()) ? BigDecimal.ONE : BigDecimal.ONE.negate())
+                        .multiply(t.getAmount() == null ? BigDecimal.ZERO : t.getAmount());
+                netByDay.merge(t.getTradeDate(), signed, BigDecimal::add);
             }
         }
         List<Map<String, Object>> data = new ArrayList<>();
         List<DailySnapshot> days = snapshotMapper.sumInvestByDay(userId, startDate, endDate);
-        BigDecimal realized = BigDecimal.ZERO;
-        // 按快照日升序，把不晚于当日的已实现盈亏累加进来（交易可能落在无快照的日期）；
+        BigDecimal cumNet = BigDecimal.ZERO;
+        // 按快照日升序，把不晚于当日的净投入变动累加进来（交易可能落在无快照的日期）；
         // 用下标游标而非迭代器——next() 过的条目不能回退，迭代器跨循环续用会漏掉未消费条目
-        List<Map.Entry<LocalDate, BigDecimal>> realizedEntries = new ArrayList<>(realizedByDay.entrySet());
+        List<Map.Entry<LocalDate, BigDecimal>> netEntries = new ArrayList<>(netByDay.entrySet());
         int ri = 0;
         for (DailySnapshot s : days) {
-            while (ri < realizedEntries.size() && !realizedEntries.get(ri).getKey().isAfter(s.getSnapshotDate())) {
-                realized = realized.add(realizedEntries.get(ri).getValue());
+            while (ri < netEntries.size() && !netEntries.get(ri).getKey().isAfter(s.getSnapshotDate())) {
+                cumNet = cumNet.add(netEntries.get(ri).getValue());
                 ri++;
             }
             BigDecimal value = s.getTotalValue() == null ? BigDecimal.ZERO : s.getTotalValue();
-            BigDecimal amount = s.getInvestAmount() == null ? value : s.getInvestAmount();
             Map<String, Object> point = new HashMap<>();
             point.put("date", s.getSnapshotDate());
-            point.put("profit", value.subtract(amount).add(realized).setScale(2, RoundingMode.HALF_UP));
+            point.put("profit", value.subtract(cumNet).setScale(2, RoundingMode.HALF_UP));
             data.add(point);
         }
         return data;
@@ -979,10 +998,10 @@ public class InvestmentService {
     }
 
     /**
-     * 买入后的历史盈亏（实时计算，不持久化）：逐日 市值 - 持仓成本。
-     * 有交易台账的标的（股票/基金买卖记录）按台账逐日演进份额与成本（平均成本法），
+     * 买入后的历史盈亏（实时计算，不持久化）：逐日 市值 − 台账累计净投入（摊薄口径，与同花顺一致）。
+     * 有交易台账的标的（股票/基金买卖记录）按台账逐日演进：净投入 = Σ买 − Σ卖，
      * 市值 = 当日快照价 × 当日持有份额 × 汇率，与走势图同一口径——
-     * 清仓后历史持仓期的盈亏仍正确体现，卖出为 0 的行保留历史；
+     * 清仓后市值归零、净投入为负，盈亏冻结在清仓时刻而不是掉到 0；
      * 无台账的老数据退回按快照的累计投入（invest_amount）计算。
      */
     public List<Map<String, Object>> profitHistory(Long id, String start, String end) {
@@ -1009,10 +1028,8 @@ public class InvestmentService {
                     ? marketService.fxRateForCode(inv.getCode()) : BigDecimal.ONE;
             int ti = 0;
             int shares = 0;
-            BigDecimal cost = BigDecimal.ZERO;
-            // 已实现盈亏：卖出部分落袋的盈亏（卖出所得 - 卖出部分成本）。
-            // 清仓后市值与持仓成本都归零，曲线维持在清仓时刻的累计盈亏而不是掉到 0
-            BigDecimal realized = BigDecimal.ZERO;
+            // 累计净投入（摊薄）：BUY +amount、SELL −amount，按交易日演进
+            BigDecimal cumNet = BigDecimal.ZERO;
             for (DailySnapshot s : snapshotMapper.listByRange(userId, DailySnapshot.KIND_INVEST, startDate, endDate)) {
                 if (!s.getRefId().equals(id)) {
                     continue;
@@ -1025,18 +1042,10 @@ public class InvestmentService {
                     InvestmentTrade t = trades.get(ti++);
                     if (InvestmentTrade.TYPE_BUY.equals(t.getTradeType())) {
                         shares += t.getShares() == null ? 0 : t.getShares();
-                        cost = cost.add(t.getAmount() == null ? BigDecimal.ZERO : t.getAmount());
+                        cumNet = cumNet.add(t.getAmount() == null ? BigDecimal.ZERO : t.getAmount());
                     } else {
-                        int sold = Math.min(t.getShares() == null ? 0 : t.getShares(), shares);
-                        BigDecimal costPart = BigDecimal.ZERO;
-                        if (shares > 0 && sold > 0) {
-                            costPart = cost.multiply(BigDecimal.valueOf(sold))
-                                    .divide(BigDecimal.valueOf(shares), 2, RoundingMode.HALF_UP);
-                            cost = cost.subtract(costPart);
-                        }
-                        shares -= sold;
-                        realized = realized.add((t.getAmount() == null ? BigDecimal.ZERO : t.getAmount())
-                                .subtract(costPart));
+                        shares -= Math.min(t.getShares() == null ? 0 : t.getShares(), shares);
+                        cumNet = cumNet.subtract(t.getAmount() == null ? BigDecimal.ZERO : t.getAmount());
                     }
                 }
                 BigDecimal value;
@@ -1048,7 +1057,7 @@ public class InvestmentService {
                 }
                 Map<String, Object> point = new HashMap<>();
                 point.put("date", s.getSnapshotDate());
-                point.put("profit", value.subtract(cost).add(realized).setScale(2, RoundingMode.HALF_UP));
+                point.put("profit", value.subtract(cumNet).setScale(2, RoundingMode.HALF_UP));
                 data.add(point);
             }
             return data;

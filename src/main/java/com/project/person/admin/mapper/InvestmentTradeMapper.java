@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Mapper
@@ -24,4 +25,9 @@ public interface InvestmentTradeMapper {
 
     @Delete("DELETE FROM investment_trade WHERE investment_id = #{investmentId} AND user_id = #{userId}")
     int deleteByInvestmentId(@Param("investmentId") Long investmentId, @Param("userId") Long userId);
+
+    /** 台账净投入（摊薄口径）：累计买入金额 − 累计卖出金额。investment.amount 的唯一权威来源 */
+    @Select("SELECT IFNULL(SUM(IF(trade_type = 'BUY', amount, -amount)), 0) " +
+            "FROM investment_trade WHERE investment_id = #{investmentId} AND user_id = #{userId}")
+    BigDecimal netAmount(@Param("investmentId") Long investmentId, @Param("userId") Long userId);
 }

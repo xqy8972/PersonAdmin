@@ -58,6 +58,10 @@ public interface InvestmentMapper {
     @Select("SELECT IFNULL(SUM(current_value), 0) FROM investment WHERE user_id = #{userId}")
     BigDecimal sumCurrentValue(@Param("userId") Long userId);
 
+    /** 直接设置投入金额（台账重算后用，amount 以台账净额为准） */
+    @Update("UPDATE investment SET amount = #{amount} WHERE id = #{id} AND user_id = #{userId}")
+    int updateAmount(@Param("id") Long id, @Param("userId") Long userId, @Param("amount") BigDecimal amount);
+
     /** 直接设置当前市值（写入市值快照时用） */
     @Update("UPDATE investment SET current_value = #{value} WHERE id = #{id} AND user_id = #{userId}")
     int updateCurrentValue(@Param("id") Long id, @Param("userId") Long userId, @Param("value") BigDecimal value);
