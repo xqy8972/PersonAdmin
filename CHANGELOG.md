@@ -2,9 +2,19 @@
 
 ## 2026-10-20
 
+### 新增（部署相关）
+
+- **健康检查接口** `GET /health`（prod 环境带 context-path 为 `/personAdmin/health`，返回 200+OK），供部署脚本判断服务就绪；不在 `/api/**` 鉴权范围内
+- **日志落盘按天滚动**：新增 `logback-spring.xml`，日志同时打控制台和 `${LOG_PATH}/personAdmin.log`（按天切 `personAdmin.yyyy-MM-dd.log`，保留 30 天）；`LOG_PATH` 由环境变量传入，缺省 `./log`（服务器上部署脚本 export `/home/work/app/PersonAdmin/log`）
+- **生产 profile**：`application-prod.yml` 配置 `server.servlet.context-path=/personAdmin`（所有接口加 `/personAdmin` 前缀），由部署脚本 `-Dspring.profiles.active=prod` 启用，本地开发不变
+- **部署脚本 `deploy.sh`**（仓库根目录，阿里云一键部署）：清理 `/home/work/app/PersonAdmin` 下旧代码 → clone `git@github.com:xqy8972/PersonAdmin.git` → 删旧包 → `mvn clean package -DskipTests` → 停掉已有 PersonAdmin 进程（先 kill 后 kill -9 兜底）→ `nohup java -jar` 启动（`-Xms512m -Xmx512m`、G1、`-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=$LOG_DIR`、prod profile、控制台输出重定向 `$LOG_DIR/console.log`）→ 轮询 `/personAdmin/health` 返回 200 继续 → 清空 `/usr/share/nginx/html/PersonAdmin/` 并把前端 html 复制过去（PersonAdmin.html，无则退回 personal-management-system.html）——复制前用 sed 把 `API_BASE` 从 `localhost:8089` 替换为线上域名 `http://serfweb.com/personAdmin/api`（仓库里保留 localhost 供本地开发），完成后打印「前端已部署」。全程部署日志 tee 到 `/home/work/app/PersonAdmin/log/start.log`
+- 已本机验证：prod 模式 `/personAdmin/health` 返回 200、无 context-path 的 `/health` 404、`/personAdmin/api/auth/login` 正常、日志按 LOG_PATH 落盘 ✓
+
 ### 调整
 
+- **登录页注册功能暂时下线**：注册切换入口用注释隐藏（代码保留可恢复），提交时强制走登录分支兜底
 - **总市值趋势「累计投入」改为「持仓成本」（摊薄成本口径，与同花顺一致）**：原口径是台账 BUY 金额累加，卖出不扣减、只增不减，卖出后投入线悬空。改为摊薄成本——累计买入金额 − 累计卖出金额（卖出按成交金额全额扣减，卖出盈利会抵减成本甚至显示负成本），「总市值 − 持仓成本」即总盈亏（含已落袋部分），与同花顺资产分析口径对齐；「新增投入」线保持只统计买入金额（不出现负数）。已渲染验证：小米 4-03 成本 7605.38 → 5-12 卖出后 −1546.88 → 5-14 再买 7666.57 ✓
+- **修复 investment.amount 与台账不一致**：重录历史交易过程中 amount 被重复累加（比台账净额多 1,918.74），已修正为台账净额 55,929.51，累计盈亏恢复正确
 - **资产走势精细到天**：「总资产走势」「细分资产走势」曲线数据点从按月聚合改为按天；范围选择仍按月（月范围选择器不变），内部展开为起始月首日~结束月末日
   - 后端新增 `GET /api/asset/trend/daily?start=YYYY-MM-DD&end=YYYY-MM-DD`：每个交易日取当日快照估值，非交易日（周末/节假日无快照）沿用最近一次快照值（lastV 跨天保留，在服务端处理），首个快照之前补 0；返回 `{days, assets:[{id,name,values}], total}`，原 `/api/asset/trend`（按月）保留不动
   - 前端两张走势图（共用 `makeAssetTrendChart`）切到新端点，x 轴为完整日期数组（标签 `YY-MM-DD`），序列数据逐日对应

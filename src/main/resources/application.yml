@@ -53,3 +53,5 @@ moonshot:
 logging:
   level:
     com.project.person.mapper: debug
+  file:
+    path: ${LOG_PATH:log}   # 服务器上由部署脚本 export LOG_PATH=/home/work/app/PersonAdmin/log，本地默认 ./log

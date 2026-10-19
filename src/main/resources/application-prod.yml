@@ -1,0 +1,6 @@
+# 生产环境（阿里云）：由部署脚本以 -Dspring.profiles.active=prod 启用
+# 所有接口加 /personAdmin 前缀：健康检查为 /personAdmin/health，业务接口为 /personAdmin/api/**
+# （前端 nginx 部署在 /PersonAdmin/，由 nginx 把 /personAdmin/api 反代到本服务）
+server:
+  servlet:
+    context-path: /personAdmin
