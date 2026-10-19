@@ -12,8 +12,8 @@ import java.util.List;
 @Mapper
 public interface InvestmentTradeMapper {
 
-    @Insert("INSERT INTO investment_trade (user_id, investment_id, trade_type, trade_date, shares, price, amount, target_asset_id, remark) " +
-            "VALUES (#{userId}, #{investmentId}, #{tradeType}, #{tradeDate}, #{shares}, #{price}, #{amount}, #{targetAssetId}, COALESCE(#{remark}, ''))")
+    @Insert("INSERT INTO investment_trade (user_id, investment_id, trade_type, trade_date, shares, price, amount, fee, target_asset_id, remark) " +
+            "VALUES (#{userId}, #{investmentId}, #{tradeType}, #{tradeDate}, #{shares}, #{price}, #{amount}, #{fee}, #{targetAssetId}, COALESCE(#{remark}, ''))")
     int insert(InvestmentTrade trade);
 
     @Select("SELECT * FROM investment_trade WHERE investment_id = #{investmentId} AND user_id = #{userId} ORDER BY trade_date ASC, id ASC")

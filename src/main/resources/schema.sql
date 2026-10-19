@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS investment_trade (
     shares          INT           DEFAULT NULL,      -- 股数/份额（金额型投资为 NULL）
     price           DECIMAL(14,4) DEFAULT NULL,      -- 成交单价（股票为对应币种股价/净值，人民币标的即人民币）
     amount          DECIMAL(14,2) NOT NULL,          -- 成交金额（人民币，买入=投入，卖出=回款）
+    fee             DECIMAL(14,2) DEFAULT NULL,      -- 本笔手续费（人民币，买入=额外付出，卖出=从回款扣除；无费用为 0）
     target_asset_id BIGINT        DEFAULT NULL,      -- 卖出资金去向资产（仅 SELL）
     remark          VARCHAR(255)  NOT NULL DEFAULT '',
     create_time     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP

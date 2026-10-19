@@ -25,6 +25,8 @@ public class InvestmentTrade {
     private BigDecimal price;
     /** 成交金额（人民币） */
     private BigDecimal amount;
+    /** 本笔交易手续费（人民币，买入=额外付出，卖出=从回款扣除；无费用为 0） */
+    private BigDecimal fee;
     /** 卖出资金去向资产（仅 SELL） */
     private Long targetAssetId;
     private String remark;
@@ -92,6 +94,14 @@ public class InvestmentTrade {
 
     public void setAmount(BigDecimal amount) {
         this.amount = amount;
+    }
+
+    public BigDecimal getFee() {
+        return fee;
+    }
+
+    public void setFee(BigDecimal fee) {
+        this.fee = fee;
     }
 
     public Long getTargetAssetId() {

@@ -186,6 +186,7 @@ public class InvestmentService {
         Asset asset = investment.getSourceAssetId() == null ? null
                 : assetSupport.requireCashAsset(userId, investment.getSourceAssetId());
 
+        BigDecimal tradeFee = null;
         if (isShareBased(investment.getType())) {
             if (investment.getShares() == null || investment.getShares() <= 0) {
                 throw BizException.badRequest(TYPE_FUND.equals(investment.getType()) ? "请填写买入份额" : "请填写买入股数");
@@ -200,11 +201,9 @@ public class InvestmentService {
             // 投入金额 = 份额 × 买入单价 × (1 + 交易费率) + 固定手续费（基金=净值/人民币；股票=股价×汇率）→ 人民币
             BigDecimal feeDec = feeRateDecimal(investment);
             BigDecimal feeFix = feeFixedFor(investment, null);
-            BigDecimal total = price.multiply(BigDecimal.valueOf(investment.getShares()))
-                    .multiply(fx)
-                    .multiply(BigDecimal.ONE.add(feeDec))
-                    .add(feeFix)
-                    .setScale(2, RoundingMode.HALF_UP);
+            BigDecimal gross = price.multiply(BigDecimal.valueOf(investment.getShares())).multiply(fx);
+            tradeFee = gross.multiply(feeDec).add(feeFix).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal total = gross.add(tradeFee).setScale(2, RoundingMode.HALF_UP);
             investment.setAmount(total);
             investment.setCurrentValue(total);
         } else {
@@ -233,6 +232,7 @@ public class InvestmentService {
         buy.setShares(investment.getShares());
         buy.setPrice(isShareBased(investment.getType()) ? investment.getPrice() : null);
         buy.setAmount(investment.getAmount());
+        buy.setFee(tradeFee);
         tradeMapper.insert(buy);
         if (asset != null && !investment.getBuyDate().isBefore(LocalDate.now())) {
             assetMapper.adjustValue(asset.getId(), userId, investment.getAmount().negate());
@@ -493,6 +493,7 @@ public class InvestmentService {
         BigDecimal oldValue = old.getCurrentValue() == null ? BigDecimal.ZERO : old.getCurrentValue();
 
         BigDecimal proceeds;
+        BigDecimal tradeFee;
         BigDecimal newAmount;
         BigDecimal newValue;
         Integer newShares = null;
@@ -520,15 +521,15 @@ public class InvestmentService {
             // 成交总额直填（照同花顺含费净回款）：填了以它为准，不再按公式算
             if (sell.getTotal() != null && sell.getTotal().compareTo(BigDecimal.ZERO) > 0) {
                 proceeds = sell.getTotal().setScale(2, RoundingMode.HALF_UP);
+                // 净回款直填时费用无法从公式反推，记录显式传入的单笔手续费（未传记 0）
+                tradeFee = sell.getFee() != null ? sell.getFee().setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO.setScale(2);
             } else {
-                // 卖出净所得 = 单价 × 份额 × 汇率 × (1 - 交易费率) - 固定手续费（费从回款中扣除）
+                // 卖出净所得 = 单价 × 份额 × 汇率 − 手续费（费从回款中扣除）
                 BigDecimal feeDec = feeRateDecimal(old);
                 BigDecimal feeFix = feeFixedFor(old, sell.getFee());
-                proceeds = unitPrice.multiply(BigDecimal.valueOf(sell.getShares()))
-                        .multiply(fx)
-                        .multiply(BigDecimal.ONE.subtract(feeDec))
-                        .subtract(feeFix)
-                        .setScale(2, RoundingMode.HALF_UP);
+                BigDecimal gross = unitPrice.multiply(BigDecimal.valueOf(sell.getShares())).multiply(fx);
+                tradeFee = gross.multiply(feeDec).add(feeFix).setScale(2, RoundingMode.HALF_UP);
+                proceeds = gross.subtract(tradeFee).setScale(2, RoundingMode.HALF_UP);
             }
             if (proceeds.compareTo(BigDecimal.ZERO) < 0) {
                 throw BizException.badRequest("手续费超过卖出所得，请检查费率和固定手续费");
@@ -556,6 +557,8 @@ public class InvestmentService {
                 throw BizException.badRequest("卖出金额不能超过当前市值（当前 ¥" + oldValue + "）");
             }
             proceeds = sell.getAmount();
+            // 金额型卖出不按公式收手续费，记录显式传入的单笔手续费（未传记 0）
+            tradeFee = sell.getFee() != null ? sell.getFee().setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO.setScale(2);
             newValue = oldValue.subtract(proceeds);
             newAmount = oldAmount.subtract(proceeds).max(BigDecimal.ZERO);
         }
@@ -580,6 +583,7 @@ public class InvestmentService {
                                 : null))
                 : null);
         sellTrade.setAmount(proceeds);
+        sellTrade.setFee(tradeFee);
         sellTrade.setTargetAssetId(sell.getAssetId());
         tradeMapper.insert(sellTrade);
 
@@ -663,17 +667,18 @@ public class InvestmentService {
                 ? requireFxAt(old, tradeDate) : BigDecimal.ONE;
         // 成交总额直填（照同花顺含费总扣款）：填了以它为准，不再按公式算
         final BigDecimal cost;
+        final BigDecimal tradeFee;
         if (buy.getTotal() != null && buy.getTotal().compareTo(BigDecimal.ZERO) > 0) {
             cost = buy.getTotal().setScale(2, RoundingMode.HALF_UP);
+            // 总额直填时费用无法从公式反推，记录显式传入的单笔手续费（未传记 0）
+            tradeFee = buy.getFee() != null ? buy.getFee().setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO.setScale(2);
         } else {
             // 买入成本 = 单价 × 数量 × 汇率 × (1 + 交易费率) + 固定手续费（费率在投资上维护，单笔可传 fee 覆盖）
             BigDecimal feeDec = feeRateDecimal(old);
             BigDecimal feeFix = feeFixedFor(old, buy.getFee());
-            cost = buy.getPrice().multiply(BigDecimal.valueOf(buy.getShares()))
-                    .multiply(fx)
-                    .multiply(BigDecimal.ONE.add(feeDec))
-                    .add(feeFix)
-                    .setScale(2, RoundingMode.HALF_UP);
+            BigDecimal gross = buy.getPrice().multiply(BigDecimal.valueOf(buy.getShares())).multiply(fx);
+            tradeFee = gross.multiply(feeDec).add(feeFix).setScale(2, RoundingMode.HALF_UP);
+            cost = gross.add(tradeFee).setScale(2, RoundingMode.HALF_UP);
         }
 
         Asset asset = buy.getAssetId() == null ? null
@@ -709,6 +714,7 @@ public class InvestmentService {
         buyTrade.setShares(buy.getShares());
         buyTrade.setPrice(buy.getPrice());
         buyTrade.setAmount(cost);
+        buyTrade.setFee(tradeFee);
         buyTrade.setRemark(buy.getRemark() == null ? "" : buy.getRemark());
         tradeMapper.insert(buyTrade);
 
