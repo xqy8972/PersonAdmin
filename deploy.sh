@@ -26,8 +26,8 @@ if [ -d "$REPO_DIR" ]; then
   echo "[1/8] 发现已存在的代码目录 $REPO_DIR，删除..."
   rm -rf "$REPO_DIR"
 fi
-echo "[2/8] clone 最新代码 git@github.com:xqy8972/PersonAdmin.git ..."
-git clone git@github.com:xqy8972/PersonAdmin.git || { echo "clone 失败，部署终止"; exit 1; }
+echo "[2/8] clone 最新代码 https://github.com/xqy8972/PersonAdmin.git ..."
+git clone https://github.com/xqy8972/PersonAdmin.git || { echo "clone 失败，部署终止"; exit 1; }
 cd "$REPO_DIR" || exit 1
 
 # ---------- 2. 删除旧包并 maven 打包 ----------
