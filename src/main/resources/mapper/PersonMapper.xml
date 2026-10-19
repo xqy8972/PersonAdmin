@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.person.admin.mapper.PersonMapper">
+
+    <resultMap id="PersonMap" type="com.project.person.admin.model.Person">
+        <id column="id" property="id"/>
+        <result column="name" property="name"/>
+        <result column="age" property="age"/>
+        <result column="email" property="email"/>
+    </resultMap>
+
+    <select id="findAll" resultMap="PersonMap">
+        SELECT id, name, age, email FROM person
+    </select>
+
+    <select id="findById" parameterType="long" resultMap="PersonMap">
+        SELECT id, name, age, email FROM person WHERE id = #{id}
+    </select>
+
+    <insert id="insert" parameterType="com.project.person.admin.model.Person" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO person (name, age, email) VALUES (#{name}, #{age}, #{email})
+    </insert>
+
+    <update id="update" parameterType="com.project.person.admin.model.Person">
+        UPDATE person
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="age != null">age = #{age},</if>
+            <if test="email != null">email = #{email},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM person WHERE id = #{id}
+    </delete>
+
+</mapper>

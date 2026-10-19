@@ -1,0 +1,55 @@
+server:
+  port: 8089
+
+spring:
+  application:
+    name: PersonAdmin
+  servlet:
+    multipart:
+      max-file-size: 10MB      # 识图上传单张图片上限
+      max-request-size: 50MB   # 批量上传总上限
+  datasource:
+    # MySQL 8.x（本机）：表结构用 src/main/resources/schema-mysql.sql 一次性建好；
+    # 注意 spring.sql.init 必须保持 never（H2 方言的 schema.sql 不能在 MySQL 执行），
+    # 空库时也不会再灌 mock 数据（data.sql 由 SqlInitRunner 按 sys_user 是否为空把关）
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/person_admin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: MYSQL-xqy-8972
+
+  # 如需切回 H2 文件库，注释上面的 MySQL 配置，启用下面的配置：
+#  datasource:
+#    driver-class-name: org.h2.Driver
+#    url: jdbc:h2:file:./data/person_admin;AUTO_SERVER=TRUE
+#    username: sa
+#    password:
+  h2:
+    console:
+      enabled: true   # 访问 http://localhost:8089/h2-console 可查看数据库（仅 H2 数据源时有意义）
+      path: /h2-console
+  sql:
+    init:
+      # MySQL 下必须 never：schema.sql 是 H2 方言（IDENTITY / CREATE INDEX IF NOT EXISTS），MySQL 跑不了；
+      # 切回 H2 时改回 always，建表由 Spring 在 Bean 初始化前执行（幂等，IF NOT EXISTS）
+      mode: never
+      encoding: UTF-8
+      schema-locations: classpath:schema.sql
+      data-locations: optional:classpath:no-data.sql
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.project.person.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+# AI 识图（Kimi 开放平台，https://platform.kimi.com 申请 API Key；
+# 也可不配这里，用环境变量 MOONSHOT_API_KEY 传入。
+# 注意：配置名不能用 kimi 前缀——Spring 宽松绑定会把属性 kimi.api-key 映射到环境变量
+# KIMI_API_KEY（本机 kimi 桌面端注入的是 agent 网关 key，直接调 api.moonshot.cn 会 401）
+moonshot:
+  api-key: ${MOONSHOT_API_KEY:sk-mtZQmvBkYINqTVQzrk880RYNmsYcVfMLP5wCrSpxYsZZstVl}
+  model: kimi-k2.6
+
+logging:
+  level:
+    com.project.person.mapper: debug
