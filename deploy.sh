@@ -12,7 +12,7 @@ START_LOG=$LOG_DIR/start.log
 NGINX_HTML=/usr/share/nginx/html/PersonAdmin
 PORT=8089
 HEALTH_URL=http://127.0.0.1:$PORT/personAdmin/health
-DOMAIN=http://serfweb8972.com              # 前端部署后调后端用的域名（nginx 反代 /personAdmin/api）
+DOMAIN=https://serfweb8972.com              # 前端部署后调后端用的域名（nginx 反代 /personAdmin/api）
 
 mkdir -p "$LOG_DIR"
 # 部署日志同时打控制台和 start.log
