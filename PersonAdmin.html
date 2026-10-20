@@ -209,6 +209,28 @@
   .m-empty { color: #b0b4bb; font-size: 13px; padding: 14px 0; text-align: center; }
   .m-link { display: flex; align-items: center; gap: 10px; padding: 13px 16px; background: #fff; border-radius: 16px; box-shadow: 0 4px 16px rgba(80, 100, 160, .08); margin-bottom: 12px; font-size: 14.5px; font-weight: 500; color: #1d1d1f; cursor: pointer; }
 
+  /* ===== 移动端区间胶囊 + 滑轮日期弹层 ===== */
+  .rp-pills { display: none; flex-wrap: wrap; gap: 8px; }
+  .rp-pill { padding: 5px 14px; border-radius: 999px; background: #f2f3f5; color: #6e6e73; font-size: 13px; cursor: pointer; user-select: none; }
+  .rp-pill.on { background: #2f6fce; color: #fff; font-weight: 600; }
+  .wr-mask { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); z-index: 300; display: flex; align-items: flex-end; justify-content: center; }
+  .wr-sheet { background: #fff; width: 100%; max-width: 480px; border-radius: 18px 18px 0 0; padding: 14px 18px calc(18px + env(safe-area-inset-bottom)); animation: wrUp .22s ease; }
+  @keyframes wrUp { from { transform: translateY(40%); opacity: .5; } to { transform: none; opacity: 1; } }
+  .wr-head { display: flex; justify-content: space-between; align-items: center; font-size: 15px; color: #1d1d1f; }
+  .wr-cancel { color: #86868b; padding: 4px 6px; }
+  .wr-ok { color: #2f6fce; font-weight: 600; padding: 4px 6px; }
+  .wr-title { text-align: center; font-size: 16px; font-weight: 600; color: #1d1d1f; padding: 12px 0 8px; font-variant-numeric: tabular-nums; }
+  .wr-title i { font-style: normal; color: #86868b; font-weight: 400; margin: 0 8px; font-size: 13px; }
+  .wr-group { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+  .wr-label { width: 34px; font-size: 12px; color: #86868b; flex-shrink: 0; }
+  .wr-wheels { flex: 1; display: flex; position: relative; height: 180px; }
+  /* 滚轮中间高亮带（居中行 = 上下各 2 行，72px 起 36 高） */
+  .wr-wheels::before { content: ''; position: absolute; left: 0; right: 0; top: 72px; height: 36px; background: rgba(47, 111, 206, .08); border-radius: 8px; }
+  .wr-wheels::after { content: ''; position: absolute; left: 0; right: 0; top: 0; bottom: 0; pointer-events: none; background: linear-gradient(180deg, #fff 0%, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0) 70%, #fff 100%); }
+  .wr-wheel { flex: 1; height: 180px; overflow-y: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; position: relative; z-index: 1; }
+  .wr-wheel::-webkit-scrollbar { display: none; }
+  .wr-item { height: 36px; line-height: 36px; text-align: center; font-size: 16px; color: #1d1d1f; user-select: none; }
+
   /* ===== 移动端适配（≤768px）：底部 Tab 栏、栅格纵向堆叠、卡片质感覆盖 ===== */
   .m-tabbar { display: none; }
   @media (max-width: 768px) {
@@ -235,6 +257,12 @@
     .m-tabbar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 100; background: rgba(255, 255, 255, .96); backdrop-filter: blur(12px); border-top: 1px solid #eceef2; padding-bottom: env(safe-area-inset-bottom); }
     .m-tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 9px 0 7px; font-size: 11px; color: #8e8e93; cursor: pointer; }
     .m-tab.active { color: #2f6fce; font-weight: 600; }
+    /* 图表：移动端图大标尺小；区间改胶囊，桌面月选择器隐藏 */
+    .rp-pills { display: flex; }
+    .desk-range { display: none; }
+    .chart-canvas { min-height: 330px !important; }
+    /* 投资页顶部图表卡（含饼图）在移动端堆叠时有明确高度，避免 flex:1 塌陷成 0 */
+    .mob-row > .chart-card { min-height: 320px; }
   }
 </style>
 </head>
@@ -1837,6 +1865,114 @@ const TrendChart = {
   </el-card>`
 };
 
+/* ---------------- 移动端通用：胶囊区间（1月/3月/半年/1年/全部/自定义） + 滑轮日期弹层 ----------------
+ * 自定义弹层为自绘底部滑轮（年/月/日），无 input 焦点，iOS 不会触发页面缩放；
+ * 展示与操作均为中文日期（如 2024年3月12日）。 */
+const RANGE_PRESETS = [
+  { key: '1m',  label: '1月',  months: 1 },
+  { key: '3m',  label: '3月',  months: 3 },
+  { key: '6m',  label: '半年', months: 6 },
+  { key: '1y',  label: '1年',  months: 12 },
+  { key: 'all', label: '全部' },
+  { key: 'custom', label: '自定义' },
+];
+const fmtDateCN = (y, m, d) => y + '年' + m + '月' + d + '日';
+const MobileWheelRange = {
+  props: { start: String, end: String },
+  emits: ['confirm', 'cancel'],
+  setup(props, { emit }) {
+    const H = 36; // 滑轮单行高
+    const parse = s => { const p = (s || todayStr()).split('-'); return { y: +p[0], m: +p[1] || 1, d: +p[2] || 1 }; };
+    const curYear = new Date().getFullYear();
+    const years = []; for (let y = curYear - 12; y <= curYear + 3; y++) years.push(y);
+    const months12 = Array.from({ length: 12 }, (_, i) => i + 1);
+    const s0 = parse(props.start), e0 = parse(props.end);
+    const sel = reactive({ sy: s0.y, sm: s0.m, sd: s0.d, ey: e0.y, em: e0.m, ed: e0.d });
+    const dim = (y, m) => new Date(y, m, 0).getDate(); // 当月天数
+    const sDays = computed(() => dim(sel.sy, sel.sm));
+    const eDays = computed(() => dim(sel.ey, sel.em));
+    const fix = () => { if (sel.sd > sDays.value) sel.sd = sDays.value; if (sel.ed > eDays.value) sel.ed = eDays.value; };
+    watch([sDays, eDays], fix);
+    const root = ref(null);
+    const confOf = k => {
+      if (k === 'sy') return { list: years, get: () => sel.sy, set: v => sel.sy = v };
+      if (k === 'sm') return { list: months12, get: () => sel.sm, set: v => sel.sm = v };
+      if (k === 'sd') return { list: Array.from({ length: sDays.value }, (_, i) => i + 1), get: () => sel.sd, set: v => sel.sd = v };
+      if (k === 'ey') return { list: years, get: () => sel.ey, set: v => sel.ey = v };
+      if (k === 'em') return { list: months12, get: () => sel.em, set: v => sel.em = v };
+      return { list: Array.from({ length: eDays.value }, (_, i) => i + 1), get: () => sel.ed, set: v => sel.ed = v };
+    };
+    // 滚动停止后吸附到最近一行并回写选中值
+    const onWheel = k => ev => {
+      const el = ev.target;
+      clearTimeout(el._wt);
+      el._wt = setTimeout(() => {
+        const conf = confOf(k);
+        let idx = Math.round(el.scrollTop / H);
+        idx = Math.max(0, Math.min(idx, conf.list.length - 1));
+        if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
+        if (conf.get() !== conf.list[idx]) conf.set(conf.list[idx]);
+      }, 90);
+    };
+    onMounted(() => {
+      const set = (k, idx) => { const el = root.value.querySelector('[data-wheel="' + k + '"]'); if (el) el.scrollTop = Math.max(0, idx) * H; };
+      set('sy', years.indexOf(sel.sy)); set('sm', sel.sm - 1); set('sd', sel.sd - 1);
+      set('ey', years.indexOf(sel.ey)); set('em', sel.em - 1); set('ed', sel.ed - 1);
+    });
+    const sText = computed(() => fmtDateCN(sel.sy, sel.sm, sel.sd));
+    const eText = computed(() => fmtDateCN(sel.ey, sel.em, sel.ed));
+    const pad = n => String(n).padStart(2, '0');
+    const ok = () => emit('confirm', sel.sy + '-' + pad(sel.sm) + '-' + pad(sel.sd), sel.ey + '-' + pad(sel.em) + '-' + pad(sel.ed));
+    return { root, years, months12, sDays, eDays, onWheel, sText, eText, ok };
+  },
+  template: `<div class="wr-mask" @click="$emit('cancel')">
+    <div class="wr-sheet" @click.stop>
+      <div class="wr-head"><span class="wr-cancel" @click="$emit('cancel')">取消</span><b>选择日期范围</b><span class="wr-ok" @click="ok">确定</span></div>
+      <div class="wr-title">{{ sText }}<i>至</i>{{ eText }}</div>
+      <div class="wr-group">
+        <span class="wr-label">开始</span>
+        <div class="wr-wheels">
+          <div class="wr-wheel" data-wheel="sy" @scroll="onWheel('sy')"><div class="wr-item" v-for="y in years" :key="y">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="sm" @scroll="onWheel('sm')"><div class="wr-item" v-for="m in months12" :key="m">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="sd" @scroll="onWheel('sd')"><div class="wr-item" v-for="d in sDays" :key="d">{{ d }}日</div></div>
+        </div>
+      </div>
+      <div class="wr-group">
+        <span class="wr-label">结束</span>
+        <div class="wr-wheels">
+          <div class="wr-wheel" data-wheel="ey" @scroll="onWheel('ey')"><div class="wr-item" v-for="y in years" :key="'e' + y">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="em" @scroll="onWheel('em')"><div class="wr-item" v-for="m in months12" :key="'e' + m">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="ed" @scroll="onWheel('ed')"><div class="wr-item" v-for="d in eDays" :key="'e' + d">{{ d }}日</div></div>
+        </div>
+      </div>
+    </div>
+  </div>`
+};
+const RangePills = {
+  props: { start: String, end: String },
+  emits: ['change'],
+  setup(props, { emit }) {
+    const active = ref('1y');
+    const customVisible = ref(false);
+    const pad = n => String(n).padStart(2, '0');
+    const fmtD = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    const pick = p => {
+      if (p.key === 'custom') { customVisible.value = true; return; }
+      active.value = p.key;
+      if (p.key === 'all') { emit('change', { start: '', end: '', preset: 'all' }); return; }
+      const end = new Date();
+      const start = new Date(end.getFullYear(), end.getMonth() - p.months + 1, 1);
+      emit('change', { start: fmtD(start), end: fmtD(end), preset: p.key });
+    };
+    const onCustom = (s, e) => { customVisible.value = false; active.value = 'custom'; emit('change', { start: s, end: e, preset: 'custom' }); };
+    return { RANGE_PRESETS, active, customVisible, pick, onCustom, start: props.start, end: props.end };
+  },
+  template: `<div class="rp-pills">
+      <span v-for="p in RANGE_PRESETS" :key="p.key" class="rp-pill" :class="{ on: active === p.key }" @click="pick(p)">{{ p.label }}</span>
+      <MobileWheelRange v-if="customVisible" :start="start" :end="end" @confirm="onCustom" @cancel="customVisible = false" />
+    </div>`
+};
+
 /* ---------------- 投资：按天的投入趋势折线图（新增/累计投入 + 总市值） ---------------- */
 const InvestTrendChart = {
   setup() {
@@ -1849,8 +1985,14 @@ const InvestTrendChart = {
     const range = ref([ymOf(ds), ymOf(now)]);
     const num = x => Number(x) || 0;
     let rangeInited = false;
+    // 移动端胶囊区间回调：preset=all 时退回「最早买入月起至今」
+    const onPill = ({ start, end, preset }) => {
+      if (preset === 'all') { rangeInited = false; render(); return; }
+      range.value = [start, end];
+    };
     const render = async () => {
       if (!chart) return;
+      const mob = window.innerWidth <= 768; // 移动端：图大、标尺小、y 轴刻度靠右
       const list = await apiGet('/investment/list').catch(() => []);
       const invs = Array.isArray(list) ? list : (list ? list.list || [] : []);
       // 首次渲染把范围初始化为「最早买入月起至今」：只看近一年时，早已清仓的标的历史全部落在窗外，曲线像空白
@@ -1859,10 +2001,12 @@ const InvestTrendChart = {
         const buys = invs.map(x => (x.buyDate || '').slice(0, 7)).filter(Boolean).sort();
         range.value = [buys.length ? buys[0] : ymOf(ds), ymOf(now)];
       }
-      // 按月选范围，曲线精确到天：起始月首日 ~ 结束月末日
-      const start = range.value[0].slice(0, 7) + '-01';
-      const [ey, em] = range.value[1].split('-').map(Number);
-      const end = fmtDay(new Date(ey, em, 0));
+      // 区间支持月（YYYY-MM，选月粒度）与日（YYYY-MM-DD，胶囊/滑轮粒度），曲线始终精确到天
+      const r0 = range.value[0], r1 = range.value[1];
+      const start = r0.length === 7 ? r0 + '-01' : r0;
+      let end;
+      if (r1.length === 7) { const [ey, em] = r1.split('-').map(Number); end = fmtDay(new Date(ey, em, 0)); }
+      else end = r1;
       // 生成范围内每一天（x 轴精细到天）
       const days = [];
       {
@@ -1935,19 +2079,22 @@ const InvestTrendChart = {
         textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
         tooltip: {
           trigger: 'axis',
+          textStyle: { fontSize: mob ? 11 : 13 },
           valueFormatter: v => '¥ ' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })
         },
-        legend: { data: ['新增投入', '持仓成本', '总市值'], top: 8, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
-        grid: { left: 70, right: 24, top: 48, bottom: 32 },
+        legend: mob
+          ? { data: ['新增投入', '持仓成本', '总市值'], top: 4, right: 4, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10, color: '#6e6e73' } }
+          : { data: ['新增投入', '持仓成本', '总市值'], top: 8, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
+        grid: mob ? { left: 8, right: 42, top: 30, bottom: 22 } : { left: 70, right: 24, top: 48, bottom: 32 },
         xAxis: {
           type: 'category', boundaryGap: false, data: days.map(m => m.slice(2)),
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
-          axisTick: { show: false }, axisLabel: { color: '#86868b' }
+          axisTick: { show: false }, axisLabel: { color: '#86868b', fontSize: mob ? 10 : 12 }
         },
         yAxis: {
-          type: 'value',
+          type: 'value', position: mob ? 'right' : 'left',
           splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
-          axisLabel: { color: '#86868b', formatter: v => v >= 10000 ? (v / 10000) + '万' : v }
+          axisLabel: { color: '#86868b', fontSize: mob ? 10 : 12, formatter: v => v >= 10000 ? (v / 10000) + '万' : v }
         },
         series: [
           {
@@ -1970,7 +2117,7 @@ const InvestTrendChart = {
         ]
       }, true);
     };
-    const resize = () => chart && chart.resize();
+    const resize = () => { if (!chart) return; chart.resize(); render(); };
     watch(range, render);
     onMounted(() => {
       chart = echarts.init(el.value);
@@ -1983,16 +2130,17 @@ const InvestTrendChart = {
       window.removeEventListener('pm-data-changed', render);
       chart && chart.dispose();
     });
-    return { el, range };
+    return { el, range, onPill };
   },
   template: `<el-card class="chart-card" style="margin-bottom:0">
-    <div style="display:flex;justify-content:space-between;align-items:center">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
       <b style="color:#1d1d1f;font-size:15px">总市值趋势</b>
-      <el-date-picker v-model="range" type="monthrange" value-format="YYYY-MM" :clearable="false"
+      <el-date-picker v-model="range" type="monthrange" value-format="YYYY-MM" :clearable="false" class="desk-range"
                       size="small" style="width:230px" range-separator="至"
                       start-placeholder="开始月" end-placeholder="结束月" @change="render" />
+      <RangePills class="mob-range" :start="range[0]" :end="range[1]" @change="onPill" />
     </div>
-    <div ref="el" style="flex:1;min-height:260px;margin-top:8px"></div>
+    <div ref="el" class="chart-canvas" style="flex:1;min-height:260px;margin-top:8px"></div>
   </el-card>`
 };
 
@@ -2006,8 +2154,13 @@ const InvestProfitChart = {
     const ds = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const range = ref([ymOf(ds), ymOf(now)]);
     let rangeInited = false;
+    const onPill = ({ start, end, preset }) => {
+      if (preset === 'all') { rangeInited = false; render(); return; }
+      range.value = [start, end];
+    };
     const render = async () => {
       if (!chart) return;
+      const mob = window.innerWidth <= 768;
       // 首次渲染把范围初始化为「最早买入月起至今」：近 6 个月窗口看不到早已清仓的标的，曲线像空白
       if (!rangeInited) {
         rangeInited = true;
@@ -2016,39 +2169,41 @@ const InvestProfitChart = {
         const buys = arr.map(x => (x.buyDate || '').slice(0, 7)).filter(Boolean).sort();
         range.value = [buys.length ? buys[0] : ymOf(ds), ymOf(now)];
       }
-      const data = await apiGet('/investment/profit-trend', {
-        start: range.value[0] + '-01', end: todayStr()
-      }).catch(() => []);
+      const r0 = range.value[0], r1 = range.value[1];
+      const start = r0.length === 7 ? r0 + '-01' : r0;
+      const end = r1.length === 7 ? todayStr() : r1; // 月粒度结束到今天；日粒度尊重选择
+      const data = await apiGet('/investment/profit-trend', { start, end }).catch(() => []);
       const rows = Array.isArray(data) ? data : [];
       chart.setOption({
         textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
         tooltip: {
           trigger: 'axis',
+          textStyle: { fontSize: mob ? 11 : 13 },
           valueFormatter: v => (Number(v) >= 0 ? '+' : '') + '¥ ' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })
         },
-        grid: { left: 70, right: 24, top: 24, bottom: 32 },
+        grid: mob ? { left: 8, right: 42, top: 16, bottom: 22 } : { left: 70, right: 24, top: 24, bottom: 32 },
         xAxis: {
           type: 'category', boundaryGap: false, data: rows.map(r => (r.date || '').slice(2)),
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
-          axisTick: { show: false }, axisLabel: { color: '#86868b' }
+          axisTick: { show: false }, axisLabel: { color: '#86868b', fontSize: mob ? 10 : 12 }
         },
         yAxis: {
-          type: 'value',
+          type: 'value', position: mob ? 'right' : 'left',
           splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
-          axisLabel: { color: '#86868b', formatter: v => v >= 10000 || v <= -10000 ? (v / 10000) + '万' : v }
+          axisLabel: { color: '#86868b', fontSize: mob ? 10 : 12, formatter: v => v >= 10000 || v <= -10000 ? (v / 10000) + '万' : v }
         },
         series: [{
-          name: '盈亏', type: 'line', smooth: false, symbol: 'circle', symbolSize: 6,
+          name: '盈亏', type: 'line', smooth: false, symbol: mob ? 'none' : 'circle', symbolSize: 6,
           data: rows.map(r => r.profit),
           // 盈利红、亏损绿（与全局配色一致）
           itemStyle: { color: p => (Number(p.value) >= 0 ? '#f56c6c' : '#67c23a'), borderColor: '#fff', borderWidth: 2 },
-          lineStyle: { width: 2.5, color: '#409eff' },
+          lineStyle: { width: mob ? 2 : 2.5, color: '#409eff' },
           areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(64,158,255,0.16)' }, { offset: 1, color: 'rgba(64,158,255,0.01)' }]) },
           markLine: { silent: true, symbol: 'none', label: { show: false }, lineStyle: { color: 'rgba(0,0,0,0.2)' }, data: [{ yAxis: 0 }] }
         }]
       }, true);
     };
-    const resize = () => chart && chart.resize();
+    const resize = () => { if (!chart) return; chart.resize(); render(); };
     watch(range, render);
     onMounted(() => {
       chart = echarts.init(el.value);
@@ -2061,16 +2216,17 @@ const InvestProfitChart = {
       window.removeEventListener('pm-data-changed', render);
       chart && chart.dispose();
     });
-    return { el, range };
+    return { el, range, onPill };
   },
   template: `<el-card class="chart-card" style="margin-bottom:0">
-    <div style="display:flex;justify-content:space-between;align-items:center">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
       <b style="color:#1d1d1f;font-size:15px">盈亏走势</b>
-      <el-date-picker v-model="range" type="monthrange" value-format="YYYY-MM" :clearable="false"
+      <el-date-picker v-model="range" type="monthrange" value-format="YYYY-MM" :clearable="false" class="desk-range"
                       size="small" style="width:230px" range-separator="至"
                       start-placeholder="开始月" end-placeholder="结束月" @change="render" />
+      <RangePills class="mob-range" :start="range[0]" :end="range[1]" @change="onPill" />
     </div>
-    <div ref="el" style="flex:1;min-height:260px;margin-top:8px"></div>
+    <div ref="el" class="chart-canvas" style="flex:1;min-height:260px;margin-top:8px"></div>
   </el-card>`
 };
 
@@ -2436,6 +2592,7 @@ const InvestPieCard = {
     let chart = null;
     const render = async () => {
       if (!chart) return;
+      const mob = window.innerWidth <= 768;
       const list = await apiGet('/investment/list').catch(() => []);
       const invs = Array.isArray(list) ? list : (list ? list.list || [] : []);
       const groups = {};
@@ -2453,13 +2610,17 @@ const InvestPieCard = {
         color: ['#007aff', '#34c759', '#ff9500', '#ff3b30', '#af52de', '#5ac8fa'],
         tooltip: {
           trigger: 'item',
+          textStyle: { fontSize: mob ? 11 : 13 },
           formatter: p => p.name + '<br/>¥ ' + Number(p.value).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) + '（' + p.percent + '%）'
         },
-        legend: { orient: 'vertical', right: 4, top: 'middle', icon: 'circle', itemWidth: 10, itemHeight: 10, itemGap: 8, textStyle: { color: '#6e6e73', fontSize: 12 } },
+        // 移动端：图例放底部横向，饼居中放大；桌面端：图例右侧纵向
+        legend: mob
+          ? { bottom: 0, left: 'center', icon: 'circle', itemWidth: 8, itemHeight: 8, itemGap: 10, textStyle: { color: '#6e6e73', fontSize: 10 } }
+          : { orient: 'vertical', right: 4, top: 'middle', icon: 'circle', itemWidth: 10, itemHeight: 10, itemGap: 8, textStyle: { color: '#6e6e73', fontSize: 12 } },
         series: [{
           type: 'pie',
-          radius: ['48%', '70%'],
-          center: ['36%', '50%'],
+          radius: mob ? ['42%', '64%'] : ['48%', '70%'],
+          center: mob ? ['50%', '42%'] : ['36%', '50%'],
           avoidLabelOverlap: true,
           itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 6 },
           // 卡片较窄，静态百分比标签放在外侧会被裁切；改为悬停时展示（图例与悬浮提示已含占比）
@@ -2499,11 +2660,17 @@ const makeAssetTrendChart = (totalOnly) => ({
     const ds = new Date(now.getFullYear(), now.getMonth() - 11, 1);
     const range = ref([ymOf(ds), ymOf(now)]);
     const palette = ['#007aff', '#34c759', '#ff9500', '#af52de', '#5ac8fa', '#ff3b30', '#8e8e93'];
+    const onPill = ({ start, end, preset }) => {
+      if (preset === 'all') { range.value = ['2015-01', ymOf(new Date())]; return; }
+      range.value = [start.slice(0, 7), end.slice(0, 7)];
+    };
     const render = async () => {
       if (!chart) return;
-      // 范围按月选，曲线精确到日：起始月首日 ~ 结束月末日
-      const [ey, em] = range.value[1].split('-').map(Number);
-      const start = range.value[0] + '-01';
+      const mob = window.innerWidth <= 768;
+      // 区间支持月（YYYY-MM）与日（YYYY-MM-DD）：起始月首日 ~ 结束月末日
+      const r1 = range.value[1];
+      const start = range.value[0].slice(0, 7) + '-01';
+      const [ey, em] = r1.slice(0, 7).split('-').map(Number);
       const endDate = new Date(ey, em, 0);
       const end = endDate.getFullYear() + '-' + String(endDate.getMonth() + 1).padStart(2, '0') + '-' + String(endDate.getDate()).padStart(2, '0');
       const data = await apiGet('/asset/trend/daily', { start, end }).catch(() => null);
@@ -2530,26 +2697,29 @@ const makeAssetTrendChart = (totalOnly) => ({
         textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
         tooltip: {
           trigger: 'axis',
+          textStyle: { fontSize: mob ? 11 : 13 },
           valueFormatter: v => v == null ? '—' : '¥ ' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })
         },
         legend: totalOnly
           ? { show: false }
-          : { type: 'scroll', top: 0, right: 8, icon: 'roundRect', itemWidth: 14, itemHeight: 4, textStyle: { fontSize: 12 } },
-        grid: { left: 70, right: 24, top: 36, bottom: 28 },
+          : mob
+            ? { type: 'scroll', top: 0, right: 4, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10 } }
+            : { type: 'scroll', top: 0, right: 8, icon: 'roundRect', itemWidth: 14, itemHeight: 4, textStyle: { fontSize: 12 } },
+        grid: mob ? { left: 8, right: 42, top: totalOnly ? 16 : 30, bottom: 22 } : { left: 70, right: 24, top: 36, bottom: 28 },
         xAxis: {
           type: 'category', boundaryGap: false, data: days.map(d => d.slice(2)),
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
-          axisTick: { show: false }, axisLabel: { color: '#86868b' }
+          axisTick: { show: false }, axisLabel: { color: '#86868b', fontSize: mob ? 10 : 12 }
         },
         yAxis: {
-          type: 'value',
+          type: 'value', position: mob ? 'right' : 'left',
           splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
-          axisLabel: { color: '#86868b', formatter: v => v >= 10000 ? (v / 10000) + '万' : v }
+          axisLabel: { color: '#86868b', fontSize: mob ? 10 : 12, formatter: v => v >= 10000 ? (v / 10000) + '万' : v }
         },
         series: series
       }, true);
     };
-    const resize = () => chart && chart.resize();
+    const resize = () => { if (!chart) return; chart.resize(); render(); };
     watch(range, render);
     onMounted(() => {
       chart = echarts.init(el.value);
@@ -2567,10 +2737,11 @@ const makeAssetTrendChart = (totalOnly) => ({
   template: '<el-card class="chart-card" style="width:100%;margin-bottom:0">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px">'
     + '<b style="color:#1d1d1f;font-size:15px">' + (totalOnly ? '总资产走势' : '细分资产走势') + '</b>'
-    + '<el-date-picker v-model="range" type="monthrange" value-format="YYYY-MM" :clearable="false" '
+    + '<el-date-picker v-model="range" type="monthrange" value-format="YYYY-MM" :clearable="false" class="desk-range" '
     + 'size="small" style="width:230px" range-separator="至" start-placeholder="开始月" end-placeholder="结束月" />'
+    + '<RangePills class="mob-range" :start="range[0]" :end="range[1]" @change="onPill" />'
     + '</div>'
-    + '<div ref="el" style="flex:1;min-height:0"></div>'
+    + '<div ref="el" class="chart-canvas" style="flex:1;min-height:0"></div>'
     + '</el-card>'
 });
 const AssetTotalTrendChart = makeAssetTrendChart(true);
@@ -2692,16 +2863,23 @@ const MobileFinancePage = {
     <div class="m-sec">
       <div class="m-sec-head">
         <div class="m-sec-icon" style="background:rgba(245,108,108,.12);color:#f56c6c"><el-icon :size="16"><Wallet /></el-icon></div>
-        <span class="m-sec-title">本月收支</span>
+        <span class="m-sec-title">本月收支与最近记录</span>
       </div>
       <div class="m-kv">
         <div class="m-kv-item"><span class="m-k">收入</span><b class="green" style="font-size:18px">+¥ {{ fmt(monthIncome) }}</b></div>
         <div class="m-kv-item"><span class="m-k">支出</span><b class="red" style="font-size:18px">-¥ {{ fmt(monthExpense) }}</b></div>
       </div>
-      <div style="display:flex;gap:10px;margin-top:14px">
+      <div style="display:flex;gap:10px;margin-top:14px;padding-bottom:6px">
         <el-button style="flex:1" @click="go('#/income')">记一笔收入</el-button>
         <el-button style="flex:1" type="danger" plain @click="go('#/expense')">记一笔支出</el-button>
       </div>
+      <div class="m-line" v-for="(r, i) in recent" :key="i">
+        <span class="m-line-sub" style="width:82px;flex-shrink:0">{{ r.recordDate }}</span>
+        <el-tag size="small" :type="r.kind === '收入' ? 'success' : 'danger'" effect="plain">{{ r.kind }}</el-tag>
+        <span class="m-line-main m-line-name">{{ r.category }}</span>
+        <b :class="r.kind === '收入' ? 'green' : 'red'" style="font-variant-numeric:tabular-nums">{{ (r.kind === '收入' ? '+' : '-') + fmt(r.amount) }}</b>
+      </div>
+      <div v-if="!recent.length" class="m-empty">本月暂无记录</div>
     </div>
 
     <div class="m-sec">
@@ -2744,22 +2922,7 @@ const MobileFinancePage = {
     </div>
 
     <HomeTrendChart />
-    <InvestProfitChart />
     <HomeExpensePie />
-
-    <div class="m-sec">
-      <div class="m-sec-head">
-        <div class="m-sec-icon" style="background:rgba(175,82,222,.12);color:#af52de"><el-icon :size="16"><Clock /></el-icon></div>
-        <span class="m-sec-title">最近记录</span>
-      </div>
-      <div class="m-line" v-for="(r, i) in recent" :key="i">
-        <span class="m-line-sub" style="width:88px;flex-shrink:0">{{ r.recordDate }}</span>
-        <el-tag size="small" :type="r.kind === '收入' ? 'success' : 'danger'" effect="plain">{{ r.kind }}</el-tag>
-        <span class="m-line-main m-line-name">{{ r.category }}</span>
-        <b :class="r.kind === '收入' ? 'green' : 'red'" style="font-variant-numeric:tabular-nums">{{ (r.kind === '收入' ? '+' : '-') + fmt(r.amount) }}</b>
-      </div>
-      <div v-if="!recent.length" class="m-empty">暂无记录</div>
-    </div>
 
     <div class="m-sec m-link" @click="go('#/fx')">
       <div class="m-sec-icon" style="background:rgba(52,199,89,.12);color:#34c759"><el-icon :size="16"><Money /></el-icon></div>
@@ -2865,6 +3028,8 @@ app.component('ExpenseRecognize', ExpenseRecognize);
 app.component('LoginPage', LoginPage);
 app.component('HomeTrendChart', HomeTrendChart);
 app.component('HomeExpensePie', HomeExpensePie);
+app.component('RangePills', RangePills);
+app.component('MobileWheelRange', MobileWheelRange);
 app.component('WeightTrendChart', WeightTrendChart);
 app.component('DietCalorieChart', DietCalorieChart);
 for (const [name, comp] of Object.entries(ElementPlusIconsVue)) app.component(name, comp);
