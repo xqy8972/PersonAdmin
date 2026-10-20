@@ -2052,7 +2052,17 @@ const InvestDailyChart = {
       const dts = trend.map(t => (t.date || '').slice(0, 10));
       const vals = trend.map(t => num(t.value));
       const prices = trend.map(t => num(t.price));
-      const daily = vals.map((v, i) => i === 0 ? 0 : Math.round((v - vals[i - 1]) * 100) / 100);
+      // 当日盈亏 = 市值日差 − 当日净投入（买入金额）+ 当日净回款（卖出金额）：
+      // 剔除资金进出后剩下的才是行情/汇率波动产生的真实盈亏，
+      // 直接取市值日差会把买入日市值跳变误算成盈利
+      const flowByDay = {};
+      trades.forEach(t => {
+        const d = (t.tradeDate || '').slice(0, 10);
+        if (!d) return;
+        flowByDay[d] = (flowByDay[d] || 0) + (t.tradeType === 'BUY' ? num(t.amount) : -num(t.amount));
+      });
+      const daily = vals.map((v, i) => i === 0 ? 0
+          : Math.round((v - vals[i - 1] - (flowByDay[dts[i]] || 0)) * 100) / 100);
       // 买卖标记：交易日期落在当前时间范围内时——垂直短虚线 + 色块字母标（买=B 红，卖=S 绿）
       const valueByDate = {};
       trend.forEach(t => { valueByDate[(t.date || '').slice(0, 10)] = num(t.value); });
