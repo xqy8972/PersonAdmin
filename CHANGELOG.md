@@ -16,6 +16,7 @@
 - **investment.amount 改为台账净额唯一数据源（摊薄口径，与同花顺一致）**：`amount` 不再由各写入路径自行累加/结转，统一由 `investment_trade` 台账净额（Σ买 − Σ卖）维护——新增/买入/卖出/编辑记完台账后用 `netAmount` 重算写回；卖出删除原平均成本结转逻辑（清仓后 amount 允许为负，同花顺即如此）；支出-投资联动（`ExpenseService.applyInvestLink/reverseInvestLink`）原只调 `adjustValue` 不记台账导致 amount 脱钩，现补记金额型台账（经 `InvestmentService.recordAmountTrade` 暴露）；渠道同步标的（sourceChannel 非空，无台账）一律跳过
 - **盈亏计算统一摊薄口径**：`profitTrend`（总盈亏走势）与 `profitHistory`（单标的买入后盈亏）删除原平均成本「已实现盈亏」机器，改为逐日累计净投入（BUY +amount / SELL −amount），`盈亏 = 市值 − 累计净投入`——清仓后市值归零、净投入为负，盈亏冻结在清仓时刻（不再掉到 0，也不随行情波动）；快照 invest_amount 字段不再被盈亏接口消费
 - **启动自愈 `AmountReconcileRunner`**（@Order(3)）：每次启动用台账净额重算所有非渠道标的的 amount 并打日志，历史手工修正/旧逻辑遗留的不一致自动纠正，幂等
+- **修复切 MySQL 后收支统计全部归零**：MyBatis Map 结果的键取 JDBC 列别名原文——H2 会把别名大写返回（旧代码按 `YM`/`TOTAL`/`KIND` 等大写取），MySQL 按 SQL 原样小写返回，导致 `income-expense` 收支趋势、`expense-category` 分类饼图、dashboard 最近收支、饮食热量汇总全部取不到值。统一改为遍历行转小写键再取，两种库通用。已验证：支出 13.10（2026-10）在趋势/饼图/最近动态均正确返回
 - **移除启动自动迁移/回填逻辑**：删除 `InvestmentTradeMigrateRunner`（存量 BUY 迁移，一次性任务早已完成）与 `FxHistoryBackfillRunner`（启动拉历史汇率+全量快照重算），服务启动不再主动向库里迁移/回填业务数据；保留 SqlInitRunner（仅空库首次初始化）、DataInitializer（默认用户不存在才创建）、AmountReconcileRunner（amount 台账自愈）
 - **总市值趋势「累计投入」改为「持仓成本」（摊薄成本口径，与同花顺一致）**：原口径是台账 BUY 金额累加，卖出不扣减、只增不减，卖出后投入线悬空。改为摊薄成本——累计买入金额 − 累计卖出金额（卖出按成交金额全额扣减，卖出盈利会抵减成本甚至显示负成本），「总市值 − 持仓成本」即总盈亏（含已落袋部分），与同花顺资产分析口径对齐；「新增投入」线保持只统计买入金额（不出现负数）。已渲染验证：小米 4-03 成本 7605.38 → 5-12 卖出后 −1546.88 → 5-14 再买 7666.57 ✓
 - **修复 investment.amount 与台账不一致**：重录历史交易过程中 amount 被重复累加（比台账净额多 1,918.74），已修正为台账净额 55,929.51，累计盈亏恢复正确

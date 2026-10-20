@@ -11,6 +11,7 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -41,9 +42,12 @@ public class DietService {
         List<Map<String, Object>> rows = dietRecordMapper.dailyCalories(UserContext.getUserId(), startDate, endDate);
         List<Map<String, Object>> data = new ArrayList<>();
         for (Map<String, Object> row : rows) {
+            // 键统一小写：H2 大写返回别名，MySQL 按 SQL 原样（小写）返回
+            Map<String, Object> r = new LinkedHashMap<>();
+            row.forEach((k, v) -> r.put(k == null ? null : k.toLowerCase(), v));
             Map<String, Object> item = new HashMap<>();
-            item.put("date", row.get("RECORDDATE"));
-            item.put("calories", row.get("CALORIES"));
+            item.put("date", r.get("recorddate"));
+            item.put("calories", r.get("calories"));
             data.add(item);
         }
         return data;

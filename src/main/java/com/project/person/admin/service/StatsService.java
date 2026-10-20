@@ -51,11 +51,12 @@ public class StatsService {
 
         List<Map<String, Object>> recent = new ArrayList<>();
         for (Map<String, Object> row : statsMapper.recentRecords(userId, recentSince)) {
+            Map<String, Object> r = lowerKeys(row);
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("kind", row.get("KIND"));
-            item.put("amount", row.get("AMOUNT"));
-            item.put("category", row.get("CATEGORY"));
-            Object recordDate = row.get("RECORD_DATE");
+            item.put("kind", r.get("kind"));
+            item.put("amount", r.get("amount"));
+            item.put("category", r.get("category"));
+            Object recordDate = r.get("record_date");
             item.put("recordDate", recordDate instanceof Date ? ((Date) recordDate).toLocalDate() : recordDate);
             recent.add(item);
         }
@@ -96,18 +97,30 @@ public class StatsService {
         List<Map<String, Object>> rows = expenseMapper.sumByCategory(userId, ym.atDay(1), ym.plusMonths(1).atDay(1));
         List<Map<String, Object>> data = new ArrayList<>();
         for (Map<String, Object> row : rows) {
+            Map<String, Object> r = lowerKeys(row);
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("category", row.get("CATEGORY"));
-            item.put("amount", row.get("TOTAL"));
+            item.put("category", r.get("category"));
+            item.put("amount", r.get("total"));
             data.add(item);
         }
         return data;
     }
 
+    /**
+     * Map 结果键统一转小写：H2 会把列别名大写返回（旧代码按大写取），
+     * MySQL 按 SQL 写的别名原样返回（小写）——转小写后两种库通用。
+     */
+    private static Map<String, Object> lowerKeys(Map<String, Object> row) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        row.forEach((k, v) -> m.put(k == null ? null : k.toLowerCase(), v));
+        return m;
+    }
+
     private Map<String, BigDecimal> toMonthMap(List<Map<String, Object>> rows) {
         Map<String, BigDecimal> map = new HashMap<>();
         for (Map<String, Object> row : rows) {
-            map.put(String.valueOf(row.get("YM")), (BigDecimal) row.get("TOTAL"));
+            Map<String, Object> r = lowerKeys(row);
+            map.put(String.valueOf(r.get("ym")), (BigDecimal) r.get("total"));
         }
         return map;
     }
