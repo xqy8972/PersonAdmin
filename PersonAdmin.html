@@ -641,6 +641,12 @@ const InvestmentPageRaw = makeCrudPage({
           <span v-else style="color:#c0c4cc">—</span>
         </template>
       </el-table-column>
+      <el-table-column label="成本价" width="128">
+        <template #default="{ row }">
+          <span v-if="isShareType(row.type) && row.costPrice != null">{{ fmt(row.costPrice) }}<span style="color:#909399;font-size:12px"> {{ (row.code || '').startsWith('hk') ? '港币' : '元' }}/{{ row.type === '基金' ? '份' : '股' }}</span></span>
+          <span v-else style="color:#c0c4cc">—</span>
+        </template>
+      </el-table-column>
       <el-table-column label="投入金额" width="130">
         <template #default="{ row }">{{ fmt(row.amount) }}</template>
       </el-table-column>
@@ -1134,12 +1140,6 @@ const AssetPageRaw = makeCrudPage({
       <el-table-column label="估值（¥）" width="160">
         <template #default="{ row }">{{ fmt(row.value) }}</template>
       </el-table-column>
-      <el-table-column label="成本价" width="140">
-        <template #default="{ row }">
-          <span v-if="row._invest && row.costPrice != null">{{ fmt(row.costPrice) }}<span style="color:#909399;font-size:12px"> {{ (row.code || '').startsWith('hk') ? '港币' : '元' }}/{{ row.type === '基金' ? '份' : '股' }}</span></span>
-          <span v-else style="color:#c0c4cc">—</span>
-        </template>
-      </el-table-column>
       <el-table-column prop="remark" label="备注" min-width="180" show-overflow-tooltip />
       <el-table-column label="操作" width="240" fixed="right">
         <template #default="{ row }">
@@ -1214,10 +1214,7 @@ const AssetPage = {
           name: i.name,
           category: '投资·' + (i.type || '其他'),
           value: i.currentValue,
-          remark: i.remark || '',
-          code: i.code || '',
-          type: i.type || '',
-          costPrice: i.costPrice == null ? null : Number(i.costPrice)
+          remark: i.remark || ''
         }));
     };
     // 资产在前、投资在后；总数与净值含投资
