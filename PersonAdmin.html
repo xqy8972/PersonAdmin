@@ -2231,7 +2231,23 @@ const MobileWheelRange = {
       const set = (k, idx) => { const el = root.value.querySelector('[data-wheel="' + k + '"]'); if (el) el.scrollTop = Math.max(0, idx) * H; };
       set('sy', years.indexOf(sel.sy)); set('sm', sel.sm - 1); set('sd', sel.sd - 1);
       set('ey', years.indexOf(sel.ey)); set('em', sel.em - 1); set('ed', sel.ed - 1);
+      startPoll();
     });
+    // 弹层打开期间每帧轮询各滚轮实际位置并回写选中值：手机上 scroll 事件在惯性滚动时会被
+    // 节流/丢帧，只靠 scroll 同步不可靠（连续滚多列时标题会停在旧值），轮询保证标题永远=滚轮所见
+    const raf = cb => (window.requestAnimationFrame ? window.requestAnimationFrame(cb) : setTimeout(cb, 30));
+    const caf = id => window.requestAnimationFrame ? window.cancelAnimationFrame(id) : clearTimeout(id);
+    let pollId = null;
+    const poll = () => {
+      if (!root.value) return;
+      ['sy', 'sm', 'sd', 'ey', 'em', 'ed'].forEach(k => {
+        const el = root.value.querySelector('[data-wheel="' + k + '"]');
+        if (el) syncFromEl(k, el);
+      });
+      pollId = raf(poll);
+    };
+    const startPoll = () => { if (pollId == null) pollId = raf(poll); };
+    onBeforeUnmount(() => { if (pollId != null) { caf(pollId); pollId = null; } });
     const sText = computed(() => fmtDateCN(sel.sy, sel.sm, sel.sd));
     const eText = computed(() => fmtDateCN(sel.ey, sel.em, sel.ed));
     const pad = n => String(n).padStart(2, '0');
@@ -3425,7 +3441,22 @@ const MonthWheel = {
     onMounted(() => {
       const set = (k, idx) => { const el = root.value.querySelector('[data-wheel="' + k + '"]'); if (el) el.scrollTop = Math.max(0, idx) * H; };
       set('y', years.indexOf(sel.y)); set('m', sel.m - 1);
+      startPoll();
     });
+    // 打开期间每帧轮询滚轮位置回写选中值（惯性滚动时 scroll 事件会丢帧，单靠 scroll 同步不可靠）
+    const raf = cb => (window.requestAnimationFrame ? window.requestAnimationFrame(cb) : setTimeout(cb, 30));
+    const caf = id => window.requestAnimationFrame ? window.cancelAnimationFrame(id) : clearTimeout(id);
+    let pollId = null;
+    const poll = () => {
+      if (!root.value) return;
+      ['y', 'm'].forEach(k => {
+        const el = root.value.querySelector('[data-wheel="' + k + '"]');
+        if (el) syncFromEl(k, el);
+      });
+      pollId = raf(poll);
+    };
+    const startPoll = () => { if (pollId == null) pollId = raf(poll); };
+    onBeforeUnmount(() => { if (pollId != null) { caf(pollId); pollId = null; } });
     const text = computed(() => sel.y + '年' + sel.m + '月');
     const pad = n => String(n).padStart(2, '0');
     // 确定前把滚轮最终位置同步回选中值，保证所见即所得
@@ -3512,7 +3543,22 @@ const DayWheel = {
     onMounted(() => {
       const set = (k, idx) => { const el = root.value.querySelector('[data-wheel="' + k + '"]'); if (el) el.scrollTop = Math.max(0, idx) * H; };
       set('y', years.indexOf(sel.y)); set('m', sel.m - 1); set('d', sel.d - 1);
+      startPoll();
     });
+    // 打开期间每帧轮询滚轮位置回写选中值（惯性滚动时 scroll 事件会丢帧，单靠 scroll 同步不可靠）
+    const raf = cb => (window.requestAnimationFrame ? window.requestAnimationFrame(cb) : setTimeout(cb, 30));
+    const caf = id => window.requestAnimationFrame ? window.cancelAnimationFrame(id) : clearTimeout(id);
+    let pollId = null;
+    const poll = () => {
+      if (!root.value) return;
+      ['y', 'm', 'd'].forEach(k => {
+        const el = root.value.querySelector('[data-wheel="' + k + '"]');
+        if (el) syncFromEl(k, el);
+      });
+      pollId = raf(poll);
+    };
+    const startPoll = () => { if (pollId == null) pollId = raf(poll); };
+    onBeforeUnmount(() => { if (pollId != null) { caf(pollId); pollId = null; } });
     const text = computed(() => sel.y + '年' + sel.m + '月' + sel.d + '日');
     const pad = n => String(n).padStart(2, '0');
     // 确定前把滚轮最终位置同步回选中值，保证所见即所得
