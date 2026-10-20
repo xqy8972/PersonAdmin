@@ -30,6 +30,20 @@
     vertical-align: 1px;
   }
 
+  /* 盘中实时行情徽标：最新价旁的绿色呼吸点小框 */
+  .live-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 5px;
+    font-size: 11px;
+    line-height: 18px;
+    color: #34c759;
+    background: #eafaf0;
+    border: 1px solid #b3e6c5;
+    border-radius: 3px;
+    vertical-align: 1px;
+  }
+
   /* ===== 左侧栏：macOS 毛玻璃 ===== */
   .aside {
     width: 230px;
@@ -157,7 +171,7 @@
 <script src="https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.js"></script>
 <script src="https://unpkg.com/echarts@5.5.1/dist/echarts.min.js"></script>
 <script>
-const { createApp, ref, reactive, computed, watch, onMounted, onBeforeUnmount } = Vue;
+const { createApp, ref, reactive, computed, watch, onMounted, onBeforeUnmount, onUnmounted } = Vue;
 const { ElMessage, ElMessageBox } = ElementPlus;
 
 /* ---------------- HTTP 接口层（对应 api_design.md，域名可改） ---------------- */
@@ -590,7 +604,7 @@ const InvestmentPageRaw = makeCrudPage({
           <div style="padding:4px 16px 16px">
             <div v-if="isShareType(row.type)" style="margin-bottom:10px;color:#6e6e73;font-size:13px">
               {{ row.type === '基金' ? '持有份额' : '持股' }} <b style="color:#1d1d1f">{{ shareCount(row) }}</b> {{ row.type === '基金' ? '份' : '股' }} ·
-              {{ row.type === '基金' ? '净值' : '股价' }} <b style="color:#1d1d1f">{{ fmt(row.price || ((row.currentValue || 0) / shareCount(row))) }}</b> {{ (row.code || '').startsWith('hk') ? '港币' : '元' }}/{{ row.type === '基金' ? '份' : '股' }} ·
+              {{ row.type === '基金' ? '净值' : '股价' }} <b style="color:#1d1d1f">{{ fmt(row.price || ((row.currentValue || 0) / shareCount(row))) }}</b> {{ (row.code || '').startsWith('hk') ? '港币' : '元' }}/{{ row.type === '基金' ? '份' : '股' }}<span v-if="row.live" class="live-badge">盘中</span> ·
               市值 <b :style="(row.currentValue - row.amount) >= 0 ? 'color:#ff3b30' : 'color:#34c759'">¥ {{ fmt(row.currentValue || 0) }}</b>
             </div>
             <div v-else style="margin-bottom:10px;color:#6e6e73;font-size:13px">
@@ -611,6 +625,22 @@ const InvestmentPageRaw = makeCrudPage({
         </template>
       </el-table-column>
       <el-table-column prop="type" label="类型" width="90" />
+      <el-table-column label="持有" width="86">
+        <template #default="{ row }">
+          <template v-if="isShareType(row.type)">{{ shareCount(row) }}<span style="color:#909399;font-size:12px"> {{ row.type === '基金' ? '份' : '股' }}</span></template>
+          <span v-else style="color:#c0c4cc">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="最新价" width="132">
+        <template #default="{ row }">
+          <template v-if="isShareType(row.type)">
+            <span v-if="row.price != null">{{ fmt(row.price) }}<span style="color:#909399;font-size:12px"> {{ (row.code || '').startsWith('hk') ? '港币' : '元' }}</span></span>
+            <span v-else style="color:#c0c4cc">—</span>
+            <span v-if="row.live" class="live-badge">盘中</span>
+          </template>
+          <span v-else style="color:#c0c4cc">—</span>
+        </template>
+      </el-table-column>
       <el-table-column label="投入金额" width="130">
         <template #default="{ row }">{{ fmt(row.amount) }}</template>
       </el-table-column>
@@ -960,6 +990,16 @@ const InvestmentPage = {
         ElMessage.success('推送凭证已复制，配置到 ths_push_agent.py 的 THS_API_KEY 中');
       } catch (e) { ElMessage.warning('复制失败，请手动选择复制'); }
     };
+    /* 盘中实时刷新：工作日交易时段（含港股 9:30-16:30）每 10s 拉一次列表，
+       后端行情缓存同步按 10s 刷新，最新价/最新盈亏/当前市值随之实时变动；盘后自动停止 */
+    const quoteTimer = setInterval(() => {
+      const n = new Date();
+      const day = n.getDay();
+      const mins = n.getHours() * 60 + n.getMinutes();
+      const inWindow = day >= 1 && day <= 5 && mins >= 555 && mins <= 16 * 60 + 35;
+      if (inWindow && document.visibilityState === 'visible') base.load();
+    }, 10000);
+    onUnmounted(() => clearInterval(quoteTimer));
     return { ...base, isShareType, codePlaceholder,
              sellVisible, sellRow, sellForm, openSell, handleSell,
              buyVisible, buyRow, buyForm, openBuy, handleBuy, refreshQuotes,

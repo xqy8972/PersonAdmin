@@ -43,8 +43,11 @@ public class Investment {
     /** 外部渠道来源：THS=同花顺等，非空表示该投资由渠道同步维护（不支持编辑/卖出/删除） */
     private String sourceChannel;
 
-    /** 最新一个交易日的盈亏（列表展示用，实时计算不落库）：最近两个行情收盘价差 × 当前持有数量 */
+    /** 最新一个交易日的盈亏（列表展示用，实时计算不落库）：盘中=(最新价−昨收)×持有数量，实时刷新 */
     private java.math.BigDecimal dayProfit;
+
+    /** 盘中实时行情标记：行情更新时间为今日且当前处于该市场交易时段（「最新价」旁展示「盘中」角标） */
+    private Boolean live;
 
     /** 交易费率（%）：买入/卖出自动按 价×量×(1±费率/100) 计入手续费，null/0 表示不计 */
     private BigDecimal feeRate;
@@ -71,6 +74,14 @@ public class Investment {
 
     public void setDayProfit(java.math.BigDecimal dayProfit) {
         this.dayProfit = dayProfit;
+    }
+
+    public Boolean getLive() {
+        return live;
+    }
+
+    public void setLive(Boolean live) {
+        this.live = live;
     }
 
     public Long getId() {

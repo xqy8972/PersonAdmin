@@ -141,36 +141,61 @@ public class InvestmentService {
             // 价差是标的币种（港股为港币），乘份额后须再乘汇率折人民币；取不到汇率跳过
             BigDecimal fx = StringUtils.hasText(inv.getCode())
                     ? marketService.fxRateForCode(inv.getCode()) : BigDecimal.ONE;
-            List<MarketDailyQuote> closes = StringUtils.hasText(inv.getCode())
-                    ? closesByCode.get(inv.getCode().trim().toLowerCase()) : null;
-            if (fx != null && closes != null && closes.size() >= 2) {
-                // 最近两个交易日收盘价差（ closes 按日期倒序）
-                dayProfit = closes.get(0).getPrice().subtract(closes.get(1).getPrice())
-                        .multiply(BigDecimal.valueOf(inv.getShares()))
-                        .multiply(fx)
-                        .setScale(2, RoundingMode.HALF_UP);
-            } else if (fx != null) {
-                // 收盘记录不足（新标的未落过库）：按历史 K 线快照算——
-                // 从最新价向前找第一个价格不同的点（跳过周末/节假日补齐的平推点），即前一交易日
-                List<DailySnapshot> prices = recent.get(inv.getId());
-                if (prices != null && !prices.isEmpty() && prices.get(0).getPrice() != null) {
-                    BigDecimal last = prices.get(0).getPrice();
-                    BigDecimal prev = null;
-                    for (int i = 1; i < prices.size(); i++) {
-                        BigDecimal p = prices.get(i).getPrice();
-                        if (p != null && p.compareTo(last) != 0) {
-                            prev = p;
-                            break;
-                        }
-                    }
-                    dayProfit = last.subtract(prev == null ? last : prev)
+            if (fx != null && StringUtils.hasText(inv.getCode())) {
+                // 实时口径（盘中每 10s 随行情缓存刷新）：最新价 − 昨收（基金为昨日净值/估算基准）
+                MarketQuote quote = marketService.getQuote(inv.getCode().trim());
+                if (quote != null && quote.getPrice() != null && quote.getPrevPrice() != null) {
+                    dayProfit = quote.getPrice().subtract(quote.getPrevPrice())
                             .multiply(BigDecimal.valueOf(inv.getShares()))
                             .multiply(fx)
                             .setScale(2, RoundingMode.HALF_UP);
                 }
             }
+            if (dayProfit == null) {
+                dayProfit = fallbackDayProfit(inv, fx, closesByCode, recent);
+            }
             inv.setDayProfit(dayProfit);
         }
+    }
+
+    /**
+     * 最新盈亏兜底（无实时行情时）：最近两个<b>交易日</b>收盘价差 × 当前持有数量。
+     * 交易日历以 market_quote 收盘表为准；收盘记录不足两条（新标还没落过库）时退回按快照最近两条计算。
+     */
+    private BigDecimal fallbackDayProfit(Investment inv, BigDecimal fx,
+                                         Map<String, List<MarketDailyQuote>> closesByCode,
+                                         Map<Long, List<DailySnapshot>> recent) {
+        if (fx == null) {
+            return null;
+        }
+        List<MarketDailyQuote> closes = StringUtils.hasText(inv.getCode())
+                ? closesByCode.get(inv.getCode().trim().toLowerCase()) : null;
+        if (closes != null && closes.size() >= 2) {
+            // 最近两个交易日收盘价差（closes 按日期倒序）
+            return closes.get(0).getPrice().subtract(closes.get(1).getPrice())
+                    .multiply(BigDecimal.valueOf(inv.getShares()))
+                    .multiply(fx)
+                    .setScale(2, RoundingMode.HALF_UP);
+        }
+        // 收盘记录不足（新标的未落过库）：按历史 K 线快照算——
+        // 从最新价向前找第一个价格不同的点（跳过周末/节假日补齐的平推点），即前一交易日
+        List<DailySnapshot> prices = recent.get(inv.getId());
+        if (prices != null && !prices.isEmpty() && prices.get(0).getPrice() != null) {
+            BigDecimal last = prices.get(0).getPrice();
+            BigDecimal prev = null;
+            for (int i = 1; i < prices.size(); i++) {
+                BigDecimal p = prices.get(i).getPrice();
+                if (p != null && p.compareTo(last) != 0) {
+                    prev = p;
+                    break;
+                }
+            }
+            return last.subtract(prev == null ? last : prev)
+                    .multiply(BigDecimal.valueOf(inv.getShares()))
+                    .multiply(fx)
+                    .setScale(2, RoundingMode.HALF_UP);
+        }
+        return null;
     }
 
     /**
@@ -957,7 +982,11 @@ public class InvestmentService {
         return fx;
     }
 
-    /** 每日走势：读每日快照表（任何变动都会留痕，删除后曲线落到 0） */
+    /**
+     * 每日走势：读每日快照表（任何变动都会留痕，删除后曲线落到 0）。
+     * 市值与「买入后盈亏」同一口径：当日快照价 × 当日台账份额 × 当前汇率（简化口径），
+     * 两图逐日增量完全一致；份额按台账逐日演进，买入前/清仓后为 0。
+     */
     public List<Map<String, Object>> trend(Long id, String start, String end) {
         Long userId = UserContext.getUserId();
         LocalDate startDate = StringUtils.hasText(start) ? IncomeService.parseDate(start, "start") : LocalDate.now().minusDays(29);
@@ -966,14 +995,35 @@ public class InvestmentService {
             throw BizException.badRequest("start 不能晚于 end");
         }
         List<DailySnapshot> snapshots = snapshotMapper.listByRange(userId, DailySnapshot.KIND_INVEST, startDate, endDate);
+        Investment inv = investmentMapper.findById(id, userId);
+        BigDecimal fx = (inv != null && StringUtils.hasText(inv.getCode()))
+                ? marketService.fxRateForCode(inv.getCode()) : BigDecimal.ONE;
+        List<InvestmentTrade> trades = tradeMapper.listByInvestment(id, userId);
         List<Map<String, Object>> data = new ArrayList<>();
+        int ti = 0;
+        int shares = 0;
         for (DailySnapshot s : snapshots) {
             if (!s.getRefId().equals(id)) {
                 continue;
             }
+            while (ti < trades.size() && !trades.get(ti).getTradeDate().isAfter(s.getSnapshotDate())) {
+                InvestmentTrade t = trades.get(ti++);
+                if (InvestmentTrade.TYPE_BUY.equals(t.getTradeType())) {
+                    shares += t.getShares() == null ? 0 : t.getShares();
+                } else {
+                    shares -= Math.min(t.getShares() == null ? 0 : t.getShares(), shares);
+                }
+            }
+            BigDecimal value;
+            if (s.getPrice() != null && s.getPrice().compareTo(BigDecimal.ZERO) > 0 && fx != null) {
+                value = s.getPrice().multiply(BigDecimal.valueOf(shares)).multiply(fx)
+                        .setScale(2, RoundingMode.HALF_UP);
+            } else {
+                value = s.getTotalValue() == null ? BigDecimal.ZERO : s.getTotalValue();
+            }
             Map<String, Object> point = new HashMap<>();
             point.put("date", s.getSnapshotDate());
-            point.put("value", s.getTotalValue());
+            point.put("value", value);
             point.put("price", s.getPrice());
             data.add(point);
         }
@@ -1061,11 +1111,9 @@ public class InvestmentService {
         }
         List<Map<String, Object>> data = new ArrayList<>();
         if (!trades.isEmpty()) {
-            // 与走势图/台账重算同一口径：逐日取「不晚于当日」的历史汇率，而不是全程用当前汇率，
-            // 否则相邻两天的盈亏差只剩股价变动、丢了汇率微动，与每日走势的「当日盈亏」对不上
-            List<com.project.person.admin.model.ExchangeRate> fxHistory =
-                    marketService.fxHistoryForCodeUpTo(inv.getCode(), LocalDate.now());
-            BigDecimal fallbackFx = StringUtils.hasText(inv.getCode())
+            // 简化口径：全程用当前汇率（历史逐日汇率口径已废弃，避免两图日增量对不上）；
+            // 份额仍按台账逐日演进（否则清仓会把历史市值清零、买入前也会出现虚高市值）
+            BigDecimal fx = StringUtils.hasText(inv.getCode())
                     ? marketService.fxRateForCode(inv.getCode()) : BigDecimal.ONE;
             int ti = 0;
             int shares = 0;
@@ -1089,10 +1137,9 @@ public class InvestmentService {
                         cumNet = cumNet.subtract(t.getAmount() == null ? BigDecimal.ZERO : t.getAmount());
                     }
                 }
-                BigDecimal fxDay = fxForDay(fxHistory, s.getSnapshotDate(), fallbackFx);
                 BigDecimal value;
-                if (s.getPrice() != null && s.getPrice().compareTo(BigDecimal.ZERO) > 0 && fxDay != null) {
-                    value = s.getPrice().multiply(BigDecimal.valueOf(shares)).multiply(fxDay)
+                if (s.getPrice() != null && s.getPrice().compareTo(BigDecimal.ZERO) > 0 && fx != null) {
+                    value = s.getPrice().multiply(BigDecimal.valueOf(shares)).multiply(fx)
                             .setScale(2, RoundingMode.HALF_UP);
                 } else {
                     value = s.getTotalValue() == null ? BigDecimal.ZERO : s.getTotalValue();

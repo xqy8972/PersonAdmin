@@ -260,6 +260,10 @@ public class MarketService {
             if (quote == null || quote.getPrice() == null) {
                 continue;
             }
+            // 盘中标记：行情更新于今日且当前处于该市场交易时段（A 股/港股/基金时段不同）
+            inv.setLive(quote.getUpdateTime() != null
+                    && quote.getUpdateTime().toLocalDate().equals(LocalDate.now())
+                    && isTradingTimeForMarket(marketOf(inv.getCode())));
             if (MarketQuote.TYPE_STOCK.equals(quote.getType())) {
                 // 股票：市值 = 股数 × 最新价（港股再 × 港币汇率折算人民币）；无股数的场内 ETF 按价格比例折算
                 BigDecimal fx = fxRateForCode(inv.getCode());
