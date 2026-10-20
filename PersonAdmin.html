@@ -2116,28 +2116,28 @@ const InvestDailyChart = {
       });
       const daily = vals.map((v, i) => i === 0 ? 0
           : Math.round((v - vals[i - 1] - (flowByDay[dts[i]] || 0)) * 100) / 100);
-      // 买卖标记：交易日期落在当前时间范围内时——垂直短虚线 + 色块字母标（买=B 红，卖=S 绿）
-      const valueByDate = {};
-      trend.forEach(t => { valueByDate[(t.date || '').slice(0, 10)] = num(t.value); });
-      const yMax = Math.max(1, ...vals.map(Math.abs));
+      // 买卖标记：标在股价走势上（价格轴），交易日期落在当前时间范围内时——垂直短虚线 + 色块字母标（买=B 红，卖=S 绿）
+      const priceByDate = {};
+      trend.forEach(t => { priceByDate[(t.date || '').slice(0, 10)] = num(t.price); });
+      const pMax = Math.max(1, ...prices.map(Math.abs));
       const markers = [];
       const stems = [];
       (trades || []).forEach(t => {
         const label = (t.tradeDate || '').slice(0, 10);
-        if (!(label in valueByDate)) return;
+        if (!(label in priceByDate)) return;
         const isBuy = t.tradeType === 'BUY';
         const color = isBuy ? '#ff3b30' : '#34c759';
-        const v = valueByDate[label];
+        const p = priceByDate[label];
         markers.push({
           name: isBuy ? 'B' : 'S',
-          value: [label, v],
+          value: [label, p],
           itemStyle: { color },
           trade: t
         });
-        // 短虚线：从标记点向上延伸约 6% 量程（markLine 自定义线段是「两端点数组」格式）
+        // 短虚线：从标记点向上延伸约 6% 价格量程（markLine 自定义线段是「两端点数组」格式）
         stems.push([
-          { coord: [label, v], symbol: 'none' },
-          { coord: [label, v + yMax * 0.06], symbol: 'none',
+          { coord: [label, p], symbol: 'none' },
+          { coord: [label, p + pMax * 0.06], symbol: 'none',
             lineStyle: { type: 'dashed', width: 1.5, color } }
         ]);
       });
@@ -2202,23 +2202,24 @@ const InvestDailyChart = {
           {
             name: '市值', type: 'line', smooth: false, symbol: 'none', data: vals,
             lineStyle: { width: 2.5, color: '#007aff' }, itemStyle: { color: '#007aff' },
-            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(0,122,255,0.18)' }, { offset: 1, color: 'rgba(0,122,255,0.02)' }]) },
-            markLine: stems.length ? {
-              silent: true, symbol: 'none',
-              data: stems
-            } : undefined
+            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(0,122,255,0.18)' }, { offset: 1, color: 'rgba(0,122,255,0.02)' }]) }
           },
           {
             // 买卖标记用 scatter 系列（markPoint 在展开行初次渲染时序下不渲染）：
-            // 红色方框白字 B=买入，绿色方框白字 S=卖出
-            name: '买卖标记', type: 'scatter', data: markers, z: 10,
+            // 红色方框白字 B=买入，绿色方框白字 S=卖出；坐标走价格轴（股价走势）
+            name: '买卖标记', type: 'scatter', yAxisIndex: 2, data: markers, z: 10,
             symbol: 'rect', symbolSize: 18,
             label: { show: true, position: 'inside', formatter: p => p.data.name,
                      color: '#fff', fontSize: 11, fontWeight: 'bold' }
           },
           {
             name: '价格', type: 'line', yAxisIndex: 2, data: prices, symbol: 'none',
-            lineStyle: { width: 1.5, color: '#8e8e93' }, itemStyle: { color: '#8e8e93' }
+            lineStyle: { width: 1.5, color: '#8e8e93' }, itemStyle: { color: '#8e8e93' },
+            // 短虚线买卖标记挂在价格系列上（markLine 的 y 值随所属系列的价格轴解释）
+            markLine: stems.length ? {
+              silent: true, symbol: 'none',
+              data: stems
+            } : undefined
           },
           {
             name: '当日盈亏', type: 'bar', yAxisIndex: 1, data: daily, barMaxWidth: 8,
