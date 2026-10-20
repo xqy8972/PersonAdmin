@@ -85,4 +85,15 @@ public class IndexController {
             return Result.error(500, e.getMessage());
         }
     }
+
+    @GetMapping("/api/stats/income-category")
+    public Result<Object> incomeCategory(@RequestParam(required = false) String month) {
+        try {
+            return Result.ok(statsService.incomeCategory(month));
+        } catch (BizException e) {
+            return Result.error(e.getCode(), e.getMessage());
+        } catch (Exception e) {
+            return Result.error(500, e.getMessage());
+        }
+    }
 }

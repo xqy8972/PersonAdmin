@@ -210,6 +210,10 @@
   .m-link { display: flex; align-items: center; gap: 10px; padding: 13px 16px; background: #fff; border-radius: 16px; box-shadow: 0 4px 16px rgba(80, 100, 160, .08); margin-bottom: 12px; font-size: 14.5px; font-weight: 500; color: #1d1d1f; cursor: pointer; }
   .inv-cards { display: none; }
   .mob-assets { display: none; }
+  /* 操作按钮紧凑排列（资产/投资列表） */
+  .ops-tight .el-button { margin-left: 0; }
+  .ops-tight .el-button + .el-button { margin-left: 2px; }
+  .ops-tight .el-button.is-text { padding-left: 4px; padding-right: 4px; }
 
   /* ===== 移动端区间胶囊 + 滑轮日期弹层 ===== */
   .rp-pills { display: none; flex-wrap: nowrap; gap: 8px; }
@@ -237,6 +241,8 @@
   .m-tabbar { display: none; }
   @media (max-width: 768px) {
     .aside { display: none; }
+    /* 移动端顶栏去掉（财务/退出登录），信息收到底栏「个人」页 */
+    .header { display: none; }
     .header { padding: 0 12px; font-size: 15px; }
     .header-header-nickname, .header .header-nickname { display: none; }
     .content { padding: 12px 12px 84px; }
@@ -292,6 +298,14 @@
     .desk-tbl { display: none; }
     .mob-assets { display: block; }
     .chart-canvas { min-height: 200px !important; }
+    /* 投资展开图：头部一行不换行、时间范围按钮单行可横滑、图表区占主体 */
+    .idch-head { flex-wrap: nowrap !important; }
+    .idch-head > b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; min-width: 0; }
+    .idch-head > div { flex-shrink: 0; }
+    .idch-head .el-radio-group { flex-wrap: nowrap; max-width: 58vw; overflow-x: auto; scrollbar-width: none; }
+    .idch-head .el-radio-group::-webkit-scrollbar { display: none; }
+    .idch-head .el-radio-button__inner { padding: 4px 8px; font-size: 11px; }
+    .idch { height: 260px !important; }
     /* 投资页：移动端隐藏渠道同步按钮 */
     .desk-only { display: none !important; }
     /* 收支详情页：收入/支出切换页签 */
@@ -621,7 +635,7 @@ const ExpenseRecognize = {
           {{ analyzing ? '识别中…' : '选择图片（可多选）' }}
         </el-button>
         <input ref="fileInput" type="file" accept="image/*" multiple style="display:none" @change="pickFiles" />
-        <span style="color:#909399;font-size:12px">支持小票 / 支付截图 / 账单列表；一次最多 9 张，多图并行识别；一张图可识别多笔；图片不保存</span>
+        <span style="color:#909399;font-size:12px">最多上传9张图，可以是单笔交易截图，也可以是支出列表；多图并行识别；一张图可识别多笔；图片不保存</span>
         <div style="flex:1"></div>
         <el-button v-if="rows.length" link type="danger" size="small" @click="rows = []">清空结果</el-button>
       </div>
@@ -730,7 +744,6 @@ const InvestmentPageRaw = makeCrudPage({
       <span style="line-height:32px;font-weight:bold;color:#409eff;font-size:18px">¥ {{ fmt(total) }}</span>
       <div style="flex:1"></div>
       <el-button type="primary" size="small" @click="openDialog()">新增投资</el-button>
-      <el-button plain size="small" @click="refreshQuotes">刷新行情</el-button>
       <el-button plain size="small" class="desk-only" @click="openChannels">渠道同步</el-button>
     </div>
     <el-table v-if="!mob" :data="list" stripe row-key="id" ref="tableRef" @row-click="toggleExpand" style="cursor:pointer">
@@ -807,15 +820,17 @@ const InvestmentPageRaw = makeCrudPage({
       <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
       <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
-          <div style="white-space:nowrap">
+          <div class="ops-tight" style="display:flex;align-items:center">
           <template v-if="row.sourceChannel">
             <span style="color:#a8abb2;font-size:12px;margin-right:8px">渠道同步维护，不支持编辑/卖出</span>
+            <span style="flex:1"></span>
             <el-button size="small" type="danger" @click.stop="handleDelete(row.id)">删除</el-button>
           </template>
           <template v-else>
             <el-button v-if="isShareType(row.type)" size="small" type="success" @click.stop="openBuy(row)">买入</el-button>
             <el-button size="small" type="warning" @click.stop="openSell(row)">卖出</el-button>
             <el-button size="small" @click.stop="openTrades(row)">交易记录</el-button>
+            <span style="flex:1"></span>
             <el-button size="small" type="danger" @click.stop="handleDelete(row.id)">删除</el-button>
           </template>
           </div>
@@ -850,6 +865,7 @@ const InvestmentPageRaw = makeCrudPage({
             <el-button v-if="isShareType(row.type)" size="small" type="success" @click="openBuy(row)">买入</el-button>
             <el-button size="small" type="warning" @click="openSell(row)">卖出</el-button>
             <el-button size="small" @click="openTrades(row)">交易记录</el-button>
+            <span style="flex:1"></span>
             <el-button size="small" type="danger" @click="handleDelete(row.id)">删除</el-button>
           </template>
         </div>
@@ -1264,18 +1280,13 @@ const AssetPageRaw = makeCrudPage({
   validate: f => { if (!f.name) { ElMessage.warning('请填写资产名称'); return false; } return true; },
   empty: () => ({ name: '', category: '现金', value: null, changeDate: todayStr(), remark: '' }),
   template: `<el-card style="margin-bottom:16px">
-  <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:center">
-    <div><div class="stat-title">净资产（资产+投资）</div><div class="stat-value blue">¥ {{ fmt(total) }}</div></div>
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px">
+    <div><div class="stat-title">净资产（资产+投资）</div><div class="stat-value blue" style="margin:4px 0 0">¥ {{ fmt(total) }}</div></div>
+    <el-button type="primary" size="small" @click="openDialog()">新增资产</el-button>
     <div style="flex:1"></div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap">
-      <el-tag v-for="t in byType" :key="t.type" effect="plain" size="large">{{ t.type }} ¥ {{ fmt(t.value) }}</el-tag>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <el-tag v-for="t in byType" :key="t.type" effect="plain" size="small">{{ t.type }} ¥ {{ fmt(t.value) }}</el-tag>
     </div>
-  </div>
-  <div class="toolbar" style="margin:14px 0 4px">
-    <span style="line-height:32px;color:#606266">资产总值：</span>
-    <span style="line-height:32px;font-weight:bold;color:#e6a23c;font-size:18px">¥ {{ fmt(total) }}</span>
-    <div style="flex:1"></div>
-    <el-button type="primary" @click="openDialog()">新增资产</el-button>
   </div>
     <el-table :data="list" stripe class="desk-tbl">
       <el-table-column label="资产名称" min-width="150" show-overflow-tooltip>
@@ -1290,13 +1301,12 @@ const AssetPageRaw = makeCrudPage({
       <el-table-column prop="remark" label="备注" min-width="180" show-overflow-tooltip />
       <el-table-column label="操作" width="240" fixed="right">
         <template #default="{ row }">
-          <div style="white-space:nowrap">
+          <div class="ops-tight" style="white-space:nowrap;display:flex;justify-content:flex-end">
           <template v-if="!row._invest">
             <el-button v-if="sellable(row)" size="small" type="warning" @click="openSell(row)">卖出</el-button>
             <el-button size="small" @click="openDialog(row)">编辑</el-button>
             <el-button size="small" type="danger" @click="handleDelete(row.id)">删除</el-button>
           </template>
-          <span v-else style="color:#c0c4cc;font-size:12px">仅展示 · 请在投资页操作</span>
           </div>
         </template>
       </el-table-column>
@@ -1308,14 +1318,15 @@ const AssetPageRaw = makeCrudPage({
           <div class="m-line-name"><el-tag v-if="row._invest" size="small" type="warning" effect="plain">投资</el-tag>{{ row.name }}</div>
           <div class="m-line-sub">{{ row.category }}<template v-if="row.remark"> · {{ row.remark }}</template></div>
         </div>
-        <div class="m-line-num"><div class="amt">¥ {{ fmt(row.value) }}</div></div>
-        <div style="display:flex;gap:2px;flex-shrink:0">
-          <template v-if="!row._invest">
-            <el-button v-if="sellable(row)" size="small" text type="warning" @click="openSell(row)">卖出</el-button>
-            <el-button size="small" text type="primary" @click="openDialog(row)">编辑</el-button>
-            <el-button size="small" text type="danger" @click="handleDelete(row.id)">删除</el-button>
-          </template>
-          <span v-else style="color:#c0c4cc;font-size:12px;line-height:24px">仅展示</span>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:8px">
+          <div class="m-line-num"><div class="amt">¥ {{ fmt(row.value) }}</div></div>
+          <div class="ops-tight" style="display:flex;flex-shrink:0">
+            <template v-if="!row._invest">
+              <el-button v-if="sellable(row)" size="small" text type="warning" @click="openSell(row)">卖出</el-button>
+              <el-button size="small" text type="primary" @click="openDialog(row)">编辑</el-button>
+              <el-button size="small" text type="danger" @click="handleDelete(row.id)">删除</el-button>
+            </template>
+          </div>
         </div>
       </div>
       <div v-if="!list.length" class="m-empty">暂无资产</div>
@@ -1436,9 +1447,14 @@ const WeightTrendChart = {
     const el = ref(null);
     let chart = null;
     const range = ref(14);
+    const custom = ref(null); // {start,end} 自定义滑轮选中的区间
+    const customVisible = ref(false);
+    const defStart = dateMinusDays(89);
+    const defEnd = todayStr();
     const render = async () => {
       if (!chart) return;
-      const params = range.value > 0 ? { start: dateMinusDays(range.value - 1) } : {};
+      const params = custom.value ? { start: custom.value.start, end: custom.value.end }
+        : range.value > 0 ? { start: dateMinusDays(range.value - 1) } : {};
       const recs = (await apiGet('/weight/list', params).catch(() => [])) || [];
       recs.sort((a, b) => (a.recordDate || '').localeCompare(b.recordDate || ''));
       chart.setOption({
@@ -1463,6 +1479,8 @@ const WeightTrendChart = {
         }]
       }, true);
     };
+    const pick = days => { custom.value = null; range.value = days; };
+    const onCustom = (s, e) => { customVisible.value = false; custom.value = { start: s, end: e }; render(); };
     const resize = () => chart && chart.resize();
     watch(range, render);
     onMounted(() => {
@@ -1476,7 +1494,7 @@ const WeightTrendChart = {
       window.removeEventListener('pm-data-changed', render);
       chart && chart.dispose();
     });
-    return { el, range };
+    return { el, range, custom, customVisible, defStart, defEnd, pick, onCustom };
   },
   template: `<el-card style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px">
@@ -1486,13 +1504,14 @@ const WeightTrendChart = {
       </div>
       <div style="display:flex;align-items:center;gap:12px">
         <slot name="actions"></slot>
-        <el-radio-group v-model="range" size="small" class="mob-pills">
-        <el-radio-button :value="7">近1周</el-radio-button>
-        <el-radio-button :value="14">近2周</el-radio-button>
-        <el-radio-button :value="30">近1月</el-radio-button>
-        <el-radio-button :value="90">近3月</el-radio-button>
-        <el-radio-button :value="0">全部</el-radio-button>
-      </el-radio-group>
+        <div class="rp-pills" style="display:flex">
+          <span class="rp-pill" :class="{ on: !custom && range === 7 }" @click="pick(7)">近1周</span>
+          <span class="rp-pill" :class="{ on: !custom && range === 14 }" @click="pick(14)">近2周</span>
+          <span class="rp-pill" :class="{ on: !custom && range === 30 }" @click="pick(30)">近1月</span>
+          <span class="rp-pill" :class="{ on: !custom && range === 90 }" @click="pick(90)">近3月</span>
+          <span class="rp-pill" :class="{ on: !!custom }" @click="customVisible = true">自定义</span>
+          <MobileWheelRange v-if="customVisible" :start="custom ? custom.start : defStart" :end="custom ? custom.end : defEnd" @confirm="onCustom" @cancel="customVisible = false" />
+        </div>
       </div>
     </div>
     <div ref="el" class="m-chart" style="height:280px;margin-top:0"></div>
@@ -1505,11 +1524,14 @@ const DietCalorieChart = {
     const el = ref(null);
     let chart = null;
     const range = ref(14);
+    const custom = ref(null); // {start,end} 自定义滑轮选中的区间
+    const customVisible = ref(false);
+    const defStart = dateMinusDays(89);
+    const defEnd = todayStr();
     const render = async () => {
       if (!chart) return;
-      const params = range.value > 0
-        ? { start: dateMinusDays(range.value - 1), end: todayStr() }
-        : { start: '2000-01-01', end: todayStr() };
+      const params = custom.value ? { start: custom.value.start, end: custom.value.end }
+        : { start: dateMinusDays(range.value - 1), end: todayStr() };
       const data = (await apiGet('/diet/daily-summary', params).catch(() => [])) || [];
       chart.setOption({
         textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
@@ -1537,6 +1559,8 @@ const DietCalorieChart = {
         }]
       }, true);
     };
+    const pick = days => { custom.value = null; range.value = days; };
+    const onCustom = (s, e) => { customVisible.value = false; custom.value = { start: s, end: e }; render(); };
     const resize = () => chart && chart.resize();
     watch(range, render);
     onMounted(() => {
@@ -1550,18 +1574,19 @@ const DietCalorieChart = {
       window.removeEventListener('pm-data-changed', render);
       chart && chart.dispose();
     });
-    return { el, range };
+    return { el, range, custom, customVisible, defStart, defEnd, pick, onCustom };
   },
   template: `<div>
-    <div style="display:flex;justify-content:space-between;align-items:center">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <b style="color:#1d1d1f;font-size:15px">饮食摄入热量</b>
-      <el-radio-group v-model="range" size="small" class="mob-pills">
-        <el-radio-button :value="7">近1周</el-radio-button>
-        <el-radio-button :value="14">近2周</el-radio-button>
-        <el-radio-button :value="30">近1月</el-radio-button>
-        <el-radio-button :value="90">近3月</el-radio-button>
-        <el-radio-button :value="0">全部</el-radio-button>
-      </el-radio-group>
+      <div class="rp-pills" style="display:flex">
+        <span class="rp-pill" :class="{ on: !custom && range === 7 }" @click="pick(7)">近1周</span>
+        <span class="rp-pill" :class="{ on: !custom && range === 14 }" @click="pick(14)">近2周</span>
+        <span class="rp-pill" :class="{ on: !custom && range === 30 }" @click="pick(30)">近1月</span>
+        <span class="rp-pill" :class="{ on: !custom && range === 90 }" @click="pick(90)">近3月</span>
+        <span class="rp-pill" :class="{ on: !!custom }" @click="customVisible = true">自定义</span>
+        <MobileWheelRange v-if="customVisible" :start="custom ? custom.start : defStart" :end="custom ? custom.end : defEnd" @confirm="onCustom" @cancel="customVisible = false" />
+      </div>
     </div>
     <div ref="el" class="m-chart" style="height:280px;margin-top:8px;margin-bottom:4px"></div>
   </div>`
@@ -1573,6 +1598,8 @@ const WeightPage = {
     const wList = ref([]); const wDialog = ref(false); const wForm = ref({});
     const dList = ref([]); const dDialog = ref(false); const dForm = ref({});
     const filterDate = ref(today);
+    const dayWheelVisible = ref(false);
+    const onDay = v => { filterDate.value = v; dayWheelVisible.value = false; };
     const loadW = async () => { wList.value = (await apiGet('/weight/list').catch(() => [])) || []; };
     const loadD = async () => { dList.value = (await apiGet('/diet/list', { date: filterDate.value }).catch(() => [])) || []; };
     const wOpen = row => { wForm.value = row ? Object.assign({}, row) : { id: null, recordDate: todayStr(), weight: null, note: '' }; wDialog.value = true; };
@@ -1687,6 +1714,8 @@ const MobileHealthPage = {
     const wList = ref([]); const wDialog = ref(false); const wForm = ref({});
     const dList = ref([]); const dDialog = ref(false); const dForm = ref({});
     const filterDate = ref(today);
+    const dayWheelVisible = ref(false);
+    const onDay = v => { filterDate.value = v; dayWheelVisible.value = false; };
     const loadW = async () => { wList.value = (await apiGet('/weight/list').catch(() => [])) || []; };
     const loadD = async () => { dList.value = (await apiGet('/diet/list', { date: filterDate.value }).catch(() => [])) || []; };
     const wOpen = row => { wForm.value = row ? Object.assign({}, row) : { id: null, recordDate: todayStr(), weight: null, note: '' }; wDialog.value = true; };
@@ -1719,7 +1748,7 @@ const MobileHealthPage = {
     onMounted(() => { loadW(); loadD(); });
     return { wList, wDialog, wForm, wOpen, wSave,
              dList, dDialog, dForm, dOpen, dSave, dDel,
-             filterDate, latest, mealTagType, fmt };
+             filterDate, latest, dayWheelVisible, onDay, mealTagType, fmt };
   },
   template: `<div class="m-wrap">
     <div class="m-hero" style="background:linear-gradient(135deg,#30b0c7 0%,#1f8fb5 55%,#1a7ba0 100%);box-shadow:0 10px 26px rgba(31,143,181,.35)">
@@ -1737,7 +1766,7 @@ const MobileHealthPage = {
       <div class="m-sec-head">
         <div class="m-sec-icon" style="background:rgba(52,199,89,.12);color:#34c759"><el-icon :size="16"><Food /></el-icon></div>
         <span class="m-sec-title">饮食记录</span>
-        <span class="m-sec-more" style="gap:8px"><el-date-picker v-model="filterDate" type="date" value-format="YYYY-MM-DD" :clearable="false" size="small" style="width:126px" /></span>
+        <span class="m-sec-more" @click="dayWheelVisible = true">{{ filterDate }}<el-icon :size="12"><ArrowDown /></el-icon></span>
       </div>
       <div class="m-line" v-for="r in dList" :key="r.id">
         <el-tag :type="mealTagType(r.mealType)" size="small" effect="plain" style="flex-shrink:0">{{ r.mealType }}</el-tag>
@@ -1783,6 +1812,7 @@ const MobileHealthPage = {
         <el-button type="primary" @click="dSave">保存</el-button>
       </template>
     </el-dialog>
+    <DayWheel v-if="dayWheelVisible" :model-value="filterDate" @confirm="onDay" @cancel="dayWheelVisible = false" />
   </div>`
 };
 
@@ -2085,8 +2115,9 @@ const MobileWheelRange = {
       if (k === 'em') return { list: months12, get: () => sel.em, set: v => sel.em = v };
       return { list: Array.from({ length: eDays.value }, (_, i) => i + 1), get: () => sel.ed, set: v => sel.ed = v };
     };
-    // 滚动停止后吸附到最近一行并回写选中值
-    const onWheel = k => ev => {
+    // 滚动停止后吸附到最近一行并回写选中值（注意：模板里必须 @scroll="onWheel('k', $event)" 传入事件，
+    // 写成 onWheel('k') 时 Vue 会把返回的闭包丢弃，滚动永远不回写——自定义日期不生效的根因）
+    const onWheel = (k, ev) => {
       const el = ev.target;
       clearTimeout(el._wt);
       el._wt = setTimeout(() => {
@@ -2116,17 +2147,17 @@ const MobileWheelRange = {
       <div class="wr-group">
         <span class="wr-label">开始</span>
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="sy" @scroll="onWheel('sy')"><div class="wr-item" v-for="y in years" :key="y">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="sm" @scroll="onWheel('sm')"><div class="wr-item" v-for="m in months12" :key="m">{{ m }}月</div></div>
-          <div class="wr-wheel" data-wheel="sd" @scroll="onWheel('sd')"><div class="wr-item" v-for="d in sDays" :key="d">{{ d }}日</div></div>
+          <div class="wr-wheel" data-wheel="sy" @scroll="onWheel('sy', $event)"><div class="wr-item" v-for="y in years" :key="y">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="sm" @scroll="onWheel('sm', $event)"><div class="wr-item" v-for="m in months12" :key="m">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="sd" @scroll="onWheel('sd', $event)"><div class="wr-item" v-for="d in sDays" :key="d">{{ d }}日</div></div>
         </div>
       </div>
       <div class="wr-group">
         <span class="wr-label">结束</span>
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="ey" @scroll="onWheel('ey')"><div class="wr-item" v-for="y in years" :key="'e' + y">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="em" @scroll="onWheel('em')"><div class="wr-item" v-for="m in months12" :key="'e' + m">{{ m }}月</div></div>
-          <div class="wr-wheel" data-wheel="ed" @scroll="onWheel('ed')"><div class="wr-item" v-for="d in eDays" :key="'e' + d">{{ d }}日</div></div>
+          <div class="wr-wheel" data-wheel="ey" @scroll="onWheel('ey', $event)"><div class="wr-item" v-for="y in years" :key="'e' + y">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="em" @scroll="onWheel('em', $event)"><div class="wr-item" v-for="m in months12" :key="'e' + m">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="ed" @scroll="onWheel('ed', $event)"><div class="wr-item" v-for="d in eDays" :key="'e' + d">{{ d }}日</div></div>
         </div>
       </div>
     </div>
@@ -2527,11 +2558,12 @@ const InvestDailyChart = {
       });
       const daily = vals.map((v, i) => i === 0 ? 0
           : Math.round((v - vals[i - 1] - (flowByDay[dts[i]] || 0)) * 100) / 100);
-      // 买卖标记：标在股价走势上（价格轴），交易日期落在当前时间范围内时——垂直短虚线 + 色块字母标（买=B 红，卖=S 绿）
+      // 买卖标记：拆成买入/卖出两个 scatter 系列，同色同日的标记用 symbolOffset 左右错开，不再重叠
       const priceByDate = {};
       trend.forEach(t => { priceByDate[(t.date || '').slice(0, 10)] = num(t.price); });
       const pMax = Math.max(1, ...prices.map(Math.abs));
-      const markers = [];
+      const buyMarkers = [];
+      const sellMarkers = [];
       const stems = [];
       (trades || []).forEach(t => {
         const label = (t.tradeDate || '').slice(0, 10);
@@ -2539,7 +2571,7 @@ const InvestDailyChart = {
         const isBuy = t.tradeType === 'BUY';
         const color = isBuy ? '#ff3b30' : '#34c759';
         const p = priceByDate[label];
-        markers.push({
+        (isBuy ? buyMarkers : sellMarkers).push({
           name: isBuy ? 'B' : 'S',
           value: [label, p],
           itemStyle: { color },
@@ -2564,10 +2596,10 @@ const InvestDailyChart = {
             let html = ps.length ? ps[0].axisValue : '';
             const priceUnit = (inv.code || '').startsWith('hk') ? '港币' : '元';
             (ps || []).forEach(p => {
-              if (p.seriesName === '买卖标记') {
+              if (p.seriesName === '买入点' || p.seriesName === '卖出点') {
                 // 买入/卖出标记：悬停显示交易时间、股数/份额、单价、金额
                 const t = (p.data && p.data.trade) || {};
-                const isBuy = t.tradeType === 'BUY';
+                const isBuy = p.seriesName === '买入点';
                 html += `<br/><span style="color:${isBuy ? '#ff3b30' : '#34c759'}">●</span> ` +
                         (isBuy ? '买入' : '卖出') + ' ' + (t.tradeDate || '') +
                         (t.shares != null ? '　' + t.shares + (inv.type === '基金' ? ' 份' : ' 股') : '') +
@@ -2582,8 +2614,10 @@ const InvestDailyChart = {
             return html;
           }
         },
-        legend: { data: ['市值', '当日盈亏', '价格'], top: 4, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
-        grid: { left: 10, right: 10, top: 40, bottom: 4, containLabel: true },
+        legend: window.innerWidth <= 768
+          ? { data: ['市值', '当日盈亏', '价格', '买入点', '卖出点'], top: 2, right: 2, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10, color: '#6e6e73' } }
+          : { data: ['市值', '当日盈亏', '价格', '买入点', '卖出点'], top: 4, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
+        grid: { left: 10, right: 10, top: window.innerWidth <= 768 ? 28 : 40, bottom: 4, containLabel: true },
         xAxis: {
           type: 'category', data: dts,
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
@@ -2616,10 +2650,16 @@ const InvestDailyChart = {
             areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(0,122,255,0.18)' }, { offset: 1, color: 'rgba(0,122,255,0.02)' }]) }
           },
           {
-            // 买卖标记用 scatter 系列（markPoint 在展开行初次渲染时序下不渲染）：
-            // 红色方框白字 B=买入，绿色方框白字 S=卖出；坐标走价格轴（股价走势）
-            name: '买卖标记', type: 'scatter', yAxisIndex: 2, data: markers, z: 10,
-            symbol: 'rect', symbolSize: 18,
+            // 买入标记：红色方框白字 B；与卖出分两个系列，symbolOffset 左右错开，同日买卖不再重叠
+            name: '买入点', type: 'scatter', yAxisIndex: 2, data: buyMarkers, z: 10,
+            symbol: 'rect', symbolSize: 18, symbolOffset: [-6, 0],
+            label: { show: true, position: 'inside', formatter: p => p.data.name,
+                     color: '#fff', fontSize: 11, fontWeight: 'bold' }
+          },
+          {
+            // 卖出标记：绿色方框白字 S
+            name: '卖出点', type: 'scatter', yAxisIndex: 2, data: sellMarkers, z: 10,
+            symbol: 'rect', symbolSize: 18, symbolOffset: [6, 0],
             label: { show: true, position: 'inside', formatter: p => p.data.name,
                      color: '#fff', fontSize: 11, fontWeight: 'bold' }
           },
@@ -2656,7 +2696,7 @@ const InvestDailyChart = {
     return { el, render, range, info, fmt };
   },
   template: `<el-card style="height:100%">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <div class="idch-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <b style="color:#1d1d1f;font-size:15px">{{ info.name }} · 每日走势</b>
       <div style="display:flex;align-items:center;gap:12px">
         <span style="font-size:13px;color:#6e6e73">累计盈亏：
@@ -2674,7 +2714,7 @@ const InvestDailyChart = {
         </el-radio-group>
       </div>
     </div>
-    <div ref="el" style="height:300px;margin-top:8px"></div>
+    <div ref="el" class="idch" style="height:300px;margin-top:8px"></div>
   </el-card>`
 };
 
@@ -2752,7 +2792,7 @@ const InvestProfitHistoryChart = {
     return { el, render, range, fmt };
   },
   template: `<el-card style="height:100%">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <div class="idch-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <b style="color:#1d1d1f;font-size:15px">买入后盈亏</b>
       <el-radio-group v-model="range" size="small" @change="render">
         <el-radio-button value="1m">近1月</el-radio-button>
@@ -2765,7 +2805,7 @@ const InvestProfitHistoryChart = {
         <el-radio-button value="all">全部</el-radio-button>
       </el-radio-group>
     </div>
-    <div ref="el" style="height:300px;margin-top:8px"></div>
+    <div ref="el" class="idch" style="height:300px;margin-top:8px"></div>
   </el-card>`
 };
 
@@ -2846,17 +2886,21 @@ const makeAssetTrendChart = (totalOnly) => ({
     const palette = ['#007aff', '#34c759', '#ff9500', '#af52de', '#5ac8fa', '#ff3b30', '#8e8e93'];
     const onPill = ({ start, end, preset }) => {
       if (preset === 'all') { range.value = ['2015-01', ymOf(new Date())]; return; }
-      range.value = [start.slice(0, 7), end.slice(0, 7)];
+      // 保留日粒度：自定义滑轮选的起止日要原样生效，不能再截断成整月
+      range.value = [start, end];
     };
     const render = async () => {
       if (!chart) return;
       const mob = window.innerWidth <= 768;
-      // 区间支持月（YYYY-MM）与日（YYYY-MM-DD）：起始月首日 ~ 结束月末日
-      const r1 = range.value[1];
-      const start = range.value[0].slice(0, 7) + '-01';
-      const [ey, em] = r1.slice(0, 7).split('-').map(Number);
-      const endDate = new Date(ey, em, 0);
-      const end = endDate.getFullYear() + '-' + String(endDate.getMonth() + 1).padStart(2, '0') + '-' + String(endDate.getDate()).padStart(2, '0');
+      // 区间支持月（YYYY-MM，桌面月选择器）与日（YYYY-MM-DD，胶囊/自定义滑轮）
+      const r0 = range.value[0], r1 = range.value[1];
+      const start = r0.length === 7 ? r0 + '-01' : r0;
+      let end;
+      if (r1.length === 7) {
+        const [ey, em] = r1.split('-').map(Number);
+        const endDate = new Date(ey, em, 0);
+        end = endDate.getFullYear() + '-' + String(endDate.getMonth() + 1).padStart(2, '0') + '-' + String(endDate.getDate()).padStart(2, '0');
+      } else end = r1;
       const data = await apiGet('/asset/trend/daily', { start, end }).catch(() => null);
       if (!data || !data.days) return;
       const days = data.days;
@@ -3023,6 +3067,10 @@ const MobileMoneyDialog = {
     return { form, cashAssets, cats, innerVisible, save, fmt };
   },
   template: `<el-dialog v-model="innerVisible" :title="type === 'income' ? '记一笔收入' : '记一笔支出'" width="92%" style="max-width:420px">
+    <div v-if="type === 'expense'" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <ExpenseRecognize />
+      <span style="font-size:11px;color:#909399;line-height:16px">最多上传9张图，可以是单笔交易截图，也可以是支出列表</span>
+    </div>
     <el-form label-width="64px">
       <el-form-item label="金额"><el-input-number v-model="form.amount" :min="0" :precision="2" style="width:100%" controls-position="right" /></el-form-item>
       <el-form-item label="分类">
@@ -3169,7 +3217,7 @@ const MonthWheel = {
     const p = (props.modelValue || monthPrefix).split('-').map(Number);
     const sel = reactive({ y: p[0], m: p[1] || 1 });
     const root = ref(null);
-    const onWheel = k => ev => {
+    const onWheel = (k, ev) => {
       const el = ev.target;
       clearTimeout(el._wt);
       el._wt = setTimeout(() => {
@@ -3198,8 +3246,64 @@ const MonthWheel = {
       <div class="wr-group">
         <span class="wr-label">月份</span>
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y')"><div class="wr-item" v-for="y in years" :key="y">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m')"><div class="wr-item" v-for="m in months12" :key="m">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y', $event)"><div class="wr-item" v-for="y in years" :key="y">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m', $event)"><div class="wr-item" v-for="m in months12" :key="m">{{ m }}月</div></div>
+        </div>
+      </div>
+    </div>
+  </div>`
+};
+
+/* ---------------- 移动端：单日滑轮（年/月/日三列滚动选择，无 input 不缩放） ---------------- */
+const DayWheel = {
+  props: { modelValue: String },
+  emits: ['confirm', 'cancel'],
+  setup(props, { emit }) {
+    const H = 36;
+    const parse = s => { const p = (s || todayStr()).split('-').map(Number); return { y: p[0], m: p[1] || 1, d: p[2] || 1 }; };
+    const curYear = new Date().getFullYear();
+    const years = []; for (let y = curYear - 12; y <= curYear + 1; y++) years.push(y);
+    const months12 = Array.from({ length: 12 }, (_, i) => i + 1);
+    const init = parse(props.modelValue);
+    const sel = reactive({ y: init.y, m: init.m, d: init.d });
+    const days = computed(() => new Date(sel.y, sel.m, 0).getDate());
+    watch(days, v => { if (sel.d > v) sel.d = v; });
+    const root = ref(null);
+    const confOf = k => {
+      if (k === 'y') return { list: years, get: () => sel.y, set: v => sel.y = v };
+      if (k === 'm') return { list: months12, get: () => sel.m, set: v => sel.m = v };
+      return { list: Array.from({ length: days.value }, (_, i) => i + 1), get: () => sel.d, set: v => sel.d = v };
+    };
+    const onWheel = (k, ev) => {
+      const el = ev.target;
+      clearTimeout(el._wt);
+      el._wt = setTimeout(() => {
+        const conf = confOf(k);
+        let idx = Math.round(el.scrollTop / H);
+        idx = Math.max(0, Math.min(idx, conf.list.length - 1));
+        if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
+        if (conf.get() !== conf.list[idx]) conf.set(conf.list[idx]);
+      }, 90);
+    };
+    onMounted(() => {
+      const set = (k, idx) => { const el = root.value.querySelector('[data-wheel="' + k + '"]'); if (el) el.scrollTop = Math.max(0, idx) * H; };
+      set('y', years.indexOf(sel.y)); set('m', sel.m - 1); set('d', sel.d - 1);
+    });
+    const text = computed(() => sel.y + '年' + sel.m + '月' + sel.d + '日');
+    const pad = n => String(n).padStart(2, '0');
+    const ok = () => emit('confirm', sel.y + '-' + pad(sel.m) + '-' + pad(sel.d));
+    const cancel = () => emit('cancel');
+    return { root, years, months12, days, onWheel, text, ok, cancel };
+  },
+  template: `<div class="wr-mask" ref="root" @click="cancel">
+    <div class="wr-sheet" @click.stop>
+      <div class="wr-head"><span class="wr-cancel" @click="cancel">取消</span><b>选择日期</b><span class="wr-ok" @click="ok">确定</span></div>
+      <div class="wr-title">{{ text }}</div>
+      <div class="wr-group">
+        <div class="wr-wheels">
+          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y', $event)"><div class="wr-item" v-for="y in years" :key="y">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m', $event)"><div class="wr-item" v-for="m in months12" :key="m">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="d" @scroll="onWheel('d', $event)"><div class="wr-item" v-for="d in days" :key="d">{{ d }}日</div></div>
         </div>
       </div>
     </div>
@@ -3272,7 +3376,48 @@ const MobileIeChart = {
   </div>`
 };
 
-/* ---------------- 移动端：收支详情（趋势图 + 收入/支出列表切换 + 记账 + 月份滚动选择） ---------------- */
+/* ---------------- 移动端：收支详情页的分类构成饼图（收入/支出切换联动） ---------------- */
+const MobileCatPie = {
+  props: { kind: String, month: String },
+  setup(props) {
+    const el = ref(null);
+    let chart = null;
+    const render = async () => {
+      if (!chart) return;
+      const data = (await apiGet('/stats/' + props.kind + '-category', { month: props.month }).catch(() => [])) || [];
+      chart.setOption({
+        textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
+        color: ['#007aff', '#34c759', '#ff9500', '#ff3b30', '#af52de', '#5ac8fa', '#5856d6', '#ff2d55', '#a2845e', '#30b0c7'],
+        tooltip: { trigger: 'item', formatter: p => p.name + '<br/>¥ ' + Number(p.value).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) + '（' + p.percent + '%）' },
+        legend: { bottom: 0, icon: 'circle', itemWidth: 10, textStyle: { fontSize: 11, color: '#6e6e73' } },
+        series: [{
+          type: 'pie', radius: ['42%', '66%'], center: ['50%', '44%'],
+          avoidLabelOverlap: true,
+          itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 6 },
+          label: { formatter: '{d}%', fontSize: 11, color: '#86868b' },
+          data: data.filter(d => Number(d.amount) > 0).map(d => ({ name: d.category, value: Number(d.amount) }))
+        }]
+      }, true);
+    };
+    const resize = () => chart && chart.resize();
+    watch(() => [props.kind, props.month], render);
+    onMounted(() => {
+      chart = echarts.init(el.value);
+      render();
+      window.addEventListener('resize', resize);
+      window.addEventListener('pm-data-changed', render);
+    });
+    onBeforeUnmount(() => {
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('pm-data-changed', render);
+      chart && chart.dispose();
+    });
+    return { el };
+  },
+  template: `<div ref="el" style="height:240px"></div>`
+};
+
+/* ---------------- 移动端：收支详情（趋势图 + 收入/支出列表切换 + 记账 + 月份滚动选择 + 构成饼图） ---------------- */
 const MobileMonthPage = {
   setup() {
     const tab = ref('income');
@@ -3319,14 +3464,42 @@ const MobileMonthPage = {
       </div>
       <div v-if="!loading && !list.length" class="m-empty">该月暂无{{ tab === 'income' ? '收入' : '支出' }}记录</div>
       <div class="m-month-total">合计：<b :class="tab === 'income' ? 'green' : 'red'">{{ (tab === 'income' ? '+' : '-') + fmt(total) }}</b></div>
+      <MobileCatPie :kind="tab" :month="month" />
       <div style="display:flex;gap:10px;padding:12px 0 8px">
-        <el-button style="flex:1" :disabled="tab !== 'income'" @click="incomeVisible = true">记一笔收入</el-button>
-        <el-button style="flex:1" type="danger" plain :disabled="tab !== 'expense'" @click="expenseVisible = true">记一笔支出</el-button>
+        <el-button style="flex:1" @click="incomeVisible = true">记一笔收入</el-button>
+        <el-button style="flex:1" type="danger" plain @click="expenseVisible = true">记一笔支出</el-button>
       </div>
     </div>
     <MonthWheel v-if="monthWheelVisible" :model-value="month" @confirm="onMonth" @cancel="monthWheelVisible = false" />
     <MobileMoneyDialog type="income" v-model:visible="incomeVisible" @saved="onSaved" />
     <MobileMoneyDialog type="expense" v-model:visible="expenseVisible" @saved="onSaved" />
+  </div>`
+};
+
+/* ---------------- 移动端：个人中心（底栏「个人」tab：头像 + 账号 + 退出登录） ---------------- */
+const MobileProfilePage = {
+  setup() {
+    const nickname = ref(store.get('nickname') || '用户');
+    window.addEventListener('pm-auth-changed', () => { nickname.value = store.get('nickname') || '用户'; });
+    /* 头像功能未做：按账号名生成固定随机图案（同一账号永远同一张） */
+    const avatar = computed(() => 'https://api.dicebear.com/9.x/identicon/svg?seed='
+      + encodeURIComponent(nickname.value) + '&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf');
+    const logout = () => {
+      store.clear('token');
+      store.clear('nickname');
+      window.dispatchEvent(new Event('pm-auth-changed'));
+    };
+    return { nickname, avatar, logout };
+  },
+  template: `<div class="m-wrap">
+    <div class="m-sec" style="padding:28px 16px 18px;text-align:center">
+      <img :src="avatar" alt="头像" style="width:84px;height:84px;border-radius:50%;background:#f2f3f5;border:3px solid #fff;box-shadow:0 4px 16px rgba(80,100,160,.15)" />
+      <div style="font-size:18px;font-weight:600;color:#1d1d1f;margin-top:12px">{{ nickname }}</div>
+      <div style="font-size:12px;color:#86868b;margin-top:4px">账号：{{ nickname }}</div>
+      <div style="padding:22px 0 10px">
+        <el-button type="danger" plain style="width:100%" @click="logout">退出登录</el-button>
+      </div>
+    </div>
   </div>`
 };
 
@@ -3336,6 +3509,7 @@ const routes = {
   '/m/finance':  { comp: MobileFinancePage, title: '财务' },
   '/m/month-detail': { comp: MobileMonthPage, title: '收支详情' },
   '/m/health':   { comp: MobileHealthPage,  title: '健康' },
+  '/m/profile':  { comp: MobileProfilePage, title: '个人' },
   '/income':     { comp: IncomePage,    title: '收入' },
   '/expense':    { comp: ExpensePage,   title: '支出' },
   '/investment': { comp: InvestmentPage,title: '投资' },
@@ -3407,6 +3581,9 @@ const App = {
       <div class="m-tab" :class="{ active: route === '#/m/health' || route === '#/health/weight' }" @click="go('#/m/health')">
         <el-icon :size="20"><FirstAidKit /></el-icon><span>健康</span>
       </div>
+      <div class="m-tab" :class="{ active: route === '#/m/profile' }" @click="go('#/m/profile')">
+        <el-icon :size="20"><User /></el-icon><span>个人</span>
+      </div>
     </nav>
   </div>`
 };
@@ -3428,9 +3605,11 @@ app.component('HomeTrendChart', HomeTrendChart);
 app.component('HomeExpensePie', HomeExpensePie);
 app.component('RangePills', RangePills);
 app.component('MobileWheelRange', MobileWheelRange);
+app.component('DayWheel', DayWheel);
 app.component('MobileMoneyDialog', MobileMoneyDialog);
 app.component('MonthWheel', MonthWheel);
 app.component('MobileIeChart', MobileIeChart);
+app.component('MobileCatPie', MobileCatPie);
 app.component('MobileHealthPage', MobileHealthPage);
 app.component('WeightTrendChart', WeightTrendChart);
 app.component('DietCalorieChart', DietCalorieChart);

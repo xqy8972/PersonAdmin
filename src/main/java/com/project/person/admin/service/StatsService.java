@@ -106,6 +106,22 @@ public class StatsService {
         return data;
     }
 
+    /** 收入分类饼图：month 缺省当月 */
+    public List<Map<String, Object>> incomeCategory(String month) {
+        YearMonth ym = IncomeService.parseMonth(month, false);
+        Long userId = UserContext.getUserId();
+        List<Map<String, Object>> rows = incomeMapper.sumByCategory(userId, ym.atDay(1), ym.plusMonths(1).atDay(1));
+        List<Map<String, Object>> data = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> r = lowerKeys(row);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("category", r.get("category"));
+            item.put("amount", r.get("total"));
+            data.add(item);
+        }
+        return data;
+    }
+
     /**
      * Map 结果键统一转小写：H2 会把列别名大写返回（旧代码按大写取），
      * MySQL 按 SQL 写的别名原样返回（小写）——转小写后两种库通用。

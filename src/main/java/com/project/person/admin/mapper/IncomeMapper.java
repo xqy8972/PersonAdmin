@@ -72,4 +72,12 @@ public interface IncomeMapper {
     List<Map<String, Object>> sumByMonth(@Param("userId") Long userId,
                                          @Param("start") LocalDate start,
                                          @Param("end") LocalDate end);
+
+    /** 收入分类汇总（饼图） */
+    @Select("SELECT category AS category, SUM(amount) AS total FROM income " +
+            "WHERE user_id = #{userId} AND record_date >= #{start} AND record_date < #{end} " +
+            "GROUP BY category")
+    List<Map<String, Object>> sumByCategory(@Param("userId") Long userId,
+                                            @Param("start") LocalDate start,
+                                            @Param("end") LocalDate end);
 }
