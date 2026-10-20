@@ -239,6 +239,8 @@
   .wr-wheel { flex: 1; height: 180px; overflow-y: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; position: relative; z-index: 1; overscroll-behavior: contain; touch-action: pan-y; }
   .wr-wheel::-webkit-scrollbar { display: none; }
   .wr-item { height: 36px; line-height: 36px; text-align: center; font-size: 16px; color: #1d1d1f; user-select: none; }
+  /* 首尾占位行：让第一行/最后一行也能滚到高亮带中心 */
+  .wr-pad { height: 36px; }
 
   /* ===== 移动端适配（≤768px）：底部 Tab 栏、栅格纵向堆叠、卡片质感覆盖 ===== */
   .m-tabbar { display: none; }
@@ -2165,6 +2167,7 @@ const MobileWheelRange = {
   emits: ['confirm', 'cancel'],
   setup(props, { emit }) {
     const H = 36; // 滑轮单行高
+    const BAND = 72; // 高亮带距轮顶（= 2 行），选中行 = 轮顶 + BAND 那一行
     const parse = s => { const p = (s || todayStr()).split('-'); return { y: +p[0], m: +p[1] || 1, d: +p[2] || 1 }; };
     const curYear = new Date().getFullYear();
     const years = []; for (let y = curYear - 12; y <= curYear + 3; y++) years.push(y);
@@ -2185,10 +2188,11 @@ const MobileWheelRange = {
       if (k === 'em') return { list: months12, get: () => sel.em, set: v => sel.em = v };
       return { list: Array.from({ length: eDays.value }, (_, i) => i + 1), get: () => sel.ed, set: v => sel.ed = v };
     };
-    // 吸附核心：滚轮当前位置 → 最近一行（不写 scrollTop，滚动过程自由）
+    // 吸附核心：按「高亮带中心行」取值（scrollTop + BAND）/H − 2 个占位 = 实际选中下标，
+    // 首尾占位 2 行使第一行/最后一行也能滚到带内——之前按轮顶行取值，视觉与标题永远差两行
     const idxOf = (k, el) => {
       const conf = confOf(k);
-      let idx = Math.round(el.scrollTop / H);
+      let idx = Math.round((el.scrollTop + BAND) / H) - 2;
       return Math.max(0, Math.min(idx, conf.list.length - 1));
     };
     const syncFromEl = (k, el) => {
@@ -2249,17 +2253,17 @@ const MobileWheelRange = {
       <div class="wr-group">
         <span class="wr-label">开始</span>
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="sy" @scroll="onWheel('sy', $event)" @touchend.passive="onLift('sy', $event)"><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('sy', i)">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="sm" @scroll="onWheel('sm', $event)" @touchend.passive="onLift('sm', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('sm', i)">{{ m }}月</div></div>
-          <div class="wr-wheel" data-wheel="sd" @scroll="onWheel('sd', $event)" @touchend.passive="onLift('sd', $event)"><div class="wr-item" v-for="(d, i) in sDays" :key="d" @click="tap('sd', i)">{{ d }}日</div></div>
+          <div class="wr-wheel" data-wheel="sy" @scroll="onWheel('sy', $event)" @touchend.passive="onLift('sy', $event)"><div class="wr-pad" v-for="n in 2" :key="'syp' + n"></div><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('sy', i)">{{ y }}年</div><div class="wr-pad" v-for="n in 2" :key="'syq' + n"></div></div>
+          <div class="wr-wheel" data-wheel="sm" @scroll="onWheel('sm', $event)" @touchend.passive="onLift('sm', $event)"><div class="wr-pad" v-for="n in 2" :key="'smp' + n"></div><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('sm', i)">{{ m }}月</div><div class="wr-pad" v-for="n in 2" :key="'smq' + n"></div></div>
+          <div class="wr-wheel" data-wheel="sd" @scroll="onWheel('sd', $event)" @touchend.passive="onLift('sd', $event)"><div class="wr-pad" v-for="n in 2" :key="'sdp' + n"></div><div class="wr-item" v-for="(d, i) in sDays" :key="d" @click="tap('sd', i)">{{ d }}日</div><div class="wr-pad" v-for="n in 2" :key="'sdq' + n"></div></div>
         </div>
       </div>
       <div class="wr-group">
         <span class="wr-label">结束</span>
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="ey" @scroll="onWheel('ey', $event)" @touchend.passive="onLift('ey', $event)"><div class="wr-item" v-for="(y, i) in years" :key="'e' + y" @click="tap('ey', i)">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="em" @scroll="onWheel('em', $event)" @touchend.passive="onLift('em', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="'e' + m" @click="tap('em', i)">{{ m }}月</div></div>
-          <div class="wr-wheel" data-wheel="ed" @scroll="onWheel('ed', $event)" @touchend.passive="onLift('ed', $event)"><div class="wr-item" v-for="(d, i) in eDays" :key="'e' + d" @click="tap('ed', i)">{{ d }}日</div></div>
+          <div class="wr-wheel" data-wheel="ey" @scroll="onWheel('ey', $event)" @touchend.passive="onLift('ey', $event)"><div class="wr-pad" v-for="n in 2" :key="'eyp' + n"></div><div class="wr-item" v-for="(y, i) in years" :key="'e' + y" @click="tap('ey', i)">{{ y }}年</div><div class="wr-pad" v-for="n in 2" :key="'eyq' + n"></div></div>
+          <div class="wr-wheel" data-wheel="em" @scroll="onWheel('em', $event)" @touchend.passive="onLift('em', $event)"><div class="wr-pad" v-for="n in 2" :key="'emp' + n"></div><div class="wr-item" v-for="(m, i) in months12" :key="'e' + m" @click="tap('em', i)">{{ m }}月</div><div class="wr-pad" v-for="n in 2" :key="'emq' + n"></div></div>
+          <div class="wr-wheel" data-wheel="ed" @scroll="onWheel('ed', $event)" @touchend.passive="onLift('ed', $event)"><div class="wr-pad" v-for="n in 2" :key="'edp' + n"></div><div class="wr-item" v-for="(d, i) in eDays" :key="'e' + d" @click="tap('ed', i)">{{ d }}日</div><div class="wr-pad" v-for="n in 2" :key="'edq' + n"></div></div>
         </div>
       </div>
     </div>
@@ -2750,8 +2754,10 @@ const InvestDailyChart = {
           }
         },
         legend: mob
-          ? { data: ['市值', '当日盈亏', '价格K线', '买入点', '卖出点'], top: 2, right: 2, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10, color: '#6e6e73' } }
+          ? { data: ['市值', '价格K线', '买入点', '卖出点'], top: 2, right: 2, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10, color: '#6e6e73' } }
           : { data: ['市值', '当日盈亏', '价格', '买入点', '卖出点'], top: 4, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
+        // 移动端日K支持双指捏合缩放/平移（inside 型，无滑块）
+        dataZoom: mob ? [{ type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false }] : [],
         grid: { left: 10, right: mob ? 8 : 10, top: mob ? 28 : 40, bottom: 4, containLabel: true },
         xAxis: {
           type: 'category', data: dts,
@@ -2822,10 +2828,11 @@ const InvestDailyChart = {
             { name: 'MA10', type: 'line', yAxisIndex: 2, data: maOf(10), symbol: 'none', smooth: true, lineStyle: { width: 1, color: '#9b59b6' }, itemStyle: { color: '#9b59b6' } },
             { name: 'MA20', type: 'line', yAxisIndex: 2, data: maOf(20), symbol: 'none', smooth: true, lineStyle: { width: 1, color: '#2f6fce' }, itemStyle: { color: '#2f6fce' } }
           ] : []),
-          {
+          // 当日盈亏柱状：桌面端展示；移动端日K向同花顺看齐，去掉红绿柱（数值仍可悬停看市值/盈亏差额）
+          ...(mob ? [] : [{
             name: '当日盈亏', type: 'bar', yAxisIndex: 1, data: daily, barMaxWidth: 8,
             itemStyle: { color: p => p.value >= 0 ? 'rgba(255,59,48,0.75)' : 'rgba(52,199,89,0.75)', borderRadius: [2, 2, 2, 2] }
-          }
+          }])
         ]
       }, true);
     };
@@ -3373,6 +3380,7 @@ const MonthWheel = {
   emits: ['confirm', 'cancel'],
   setup(props, { emit }) {
     const H = 36;
+    const BAND = 72; // 高亮带距轮顶（2 行），选中行 = 轮顶 + BAND 那一行
     const curYear = new Date().getFullYear();
     const years = []; for (let y = curYear - 12; y <= curYear + 3; y++) years.push(y);
     const months12 = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -3382,7 +3390,7 @@ const MonthWheel = {
     const listOf = k => k === 'y' ? years : months12;
     const idxOf = (k, el) => {
       const list = listOf(k);
-      let idx = Math.round(el.scrollTop / H);
+      let idx = Math.round((el.scrollTop + BAND) / H) - 2;
       return Math.max(0, Math.min(idx, list.length - 1));
     };
     const syncFromEl = (k, el) => {
@@ -3438,8 +3446,8 @@ const MonthWheel = {
       <div class="wr-group">
         <span class="wr-label">月份</span>
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y', $event)" @touchend.passive="onLift('y', $event)"><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('y', i)">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m', $event)" @touchend.passive="onLift('m', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('m', i)">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y', $event)" @touchend.passive="onLift('y', $event)"><div class="wr-pad" v-for="n in 2" :key="'yp' + n"></div><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('y', i)">{{ y }}年</div><div class="wr-pad" v-for="n in 2" :key="'yq' + n"></div></div>
+          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m', $event)" @touchend.passive="onLift('m', $event)"><div class="wr-pad" v-for="n in 2" :key="'mp' + n"></div><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('m', i)">{{ m }}月</div><div class="wr-pad" v-for="n in 2" :key="'mq' + n"></div></div>
         </div>
       </div>
     </div>
@@ -3458,6 +3466,7 @@ const DayWheel = {
     const months12 = Array.from({ length: 12 }, (_, i) => i + 1);
     const init = parse(props.modelValue);
     const sel = reactive({ y: init.y, m: init.m, d: init.d });
+    const BAND = 72; // 高亮带距轮顶（2 行），选中行 = 轮顶 + BAND 那一行
     const days = computed(() => new Date(sel.y, sel.m, 0).getDate());
     watch(days, v => { if (sel.d > v) sel.d = v; });
     const root = ref(null);
@@ -3468,7 +3477,7 @@ const DayWheel = {
     };
     const idxOf = (k, el) => {
       const conf = confOf(k);
-      let idx = Math.round(el.scrollTop / H);
+      let idx = Math.round((el.scrollTop + BAND) / H) - 2;
       return Math.max(0, Math.min(idx, conf.list.length - 1));
     };
     const syncFromEl = (k, el) => {
@@ -3523,9 +3532,9 @@ const DayWheel = {
       <div class="wr-title">{{ text }}</div>
       <div class="wr-group">
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y', $event)" @touchend.passive="onLift('y', $event)"><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('y', i)">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m', $event)" @touchend.passive="onLift('m', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('m', i)">{{ m }}月</div></div>
-          <div class="wr-wheel" data-wheel="d" @scroll="onWheel('d', $event)" @touchend.passive="onLift('d', $event)"><div class="wr-item" v-for="(d, i) in days" :key="d" @click="tap('d', i)">{{ d }}日</div></div>
+          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y', $event)" @touchend.passive="onLift('y', $event)"><div class="wr-pad" v-for="n in 2" :key="'yp' + n"></div><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('y', i)">{{ y }}年</div><div class="wr-pad" v-for="n in 2" :key="'yq' + n"></div></div>
+          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m', $event)" @touchend.passive="onLift('m', $event)"><div class="wr-pad" v-for="n in 2" :key="'mp' + n"></div><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('m', i)">{{ m }}月</div><div class="wr-pad" v-for="n in 2" :key="'mq' + n"></div></div>
+          <div class="wr-wheel" data-wheel="d" @scroll="onWheel('d', $event)" @touchend.passive="onLift('d', $event)"><div class="wr-pad" v-for="n in 2" :key="'dp' + n"></div><div class="wr-item" v-for="(d, i) in days" :key="d" @click="tap('d', i)">{{ d }}日</div><div class="wr-pad" v-for="n in 2" :key="'dq' + n"></div></div>
         </div>
       </div>
     </div>
