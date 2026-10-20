@@ -87,9 +87,53 @@ public class InvestmentService {
         List<Investment> list = investmentMapper.list(userId);
         marketService.applyRealtime(list);
         fillDayProfit(userId, list);
+        fillCostPrice(userId, list);
         list.sort(Comparator.comparing(Investment::getCurrentValue,
                 Comparator.nullsLast(Comparator.reverseOrder())));
         return list;
+    }
+
+    /**
+     * 填充「成本价」（同花顺摊薄口径，与 /investment/list 下发的投资行、资产页投资行共用）：
+     * (Σ买入价×量 − Σ卖出价×量，每笔按<b>成交日</b>汇率折人民币) ÷ 当前持有数量，
+     * 再按当前汇率换算回标的币种展示（港股=港币/股，A 股=元/股，基金=元/份）。
+     * 无台账、无行情代码的价格型标的或已清仓（数量为 0）返回 null。
+     * 注：同花顺成本含交易费用，本系统按需求不含费，数值会比同花顺略低（小米差约 0.3%）。
+     */
+    private void fillCostPrice(Long userId, List<Investment> list) {
+        for (Investment inv : list) {
+            if (!isShareBased(inv.getType()) || inv.getShares() == null || inv.getShares() <= 0
+                    || !StringUtils.hasText(inv.getCode())) {
+                continue;
+            }
+            List<InvestmentTrade> trades = tradeMapper.listByInvestment(inv.getId(), userId);
+            if (trades.isEmpty()) {
+                continue;
+            }
+            BigDecimal net = BigDecimal.ZERO;
+            for (InvestmentTrade t : trades) {
+                if (t.getPrice() == null || t.getShares() == null) {
+                    continue;
+                }
+                // 每笔按成交日汇率折人民币（取不到退回最新汇率），与同花顺成交口径一致
+                BigDecimal fx = marketService.fxRateForCodeAt(inv.getCode(), t.getTradeDate());
+                if (fx == null) {
+                    fx = BigDecimal.ONE;
+                }
+                BigDecimal v = t.getPrice().multiply(BigDecimal.valueOf(t.getShares())).multiply(fx);
+                net = net.add(InvestmentTrade.TYPE_BUY.equals(t.getTradeType()) ? v : v.negate());
+            }
+            BigDecimal perShareCny = net.divide(BigDecimal.valueOf(inv.getShares()), 6, RoundingMode.HALF_UP);
+            if (MarketService.MARKET_HK.equals(marketService.marketOf(inv.getCode()))) {
+                // 港股标的：成本价按港币展示（净投入人民币 ÷ 当前港币汇率）
+                BigDecimal fxNow = marketService.fxRateForCode(inv.getCode());
+                if (fxNow != null && fxNow.compareTo(BigDecimal.ZERO) > 0) {
+                    inv.setCostPrice(perShareCny.divide(fxNow, 4, RoundingMode.HALF_UP));
+                }
+            } else {
+                inv.setCostPrice(perShareCny.setScale(4, RoundingMode.HALF_UP));
+            }
+        }
     }
 
     /**

@@ -49,6 +49,13 @@ public class Investment {
     /** 盘中实时行情标记：行情更新时间为今日且当前处于该市场交易时段（「最新价」旁展示「盘中」角标） */
     private Boolean live;
 
+    /**
+     * 成本价（同花顺摊薄口径，列表展示用不落库）：(Σ买入价×量 − Σ卖出价×量，
+     * 每笔按成交日汇率折人民币) ÷ 当前持有数量，再按当前汇率换算回标的币种
+     * （港股=港币/股，A 股=元/股，基金=元/份）。无台账或已清仓返回 null。
+     */
+    private java.math.BigDecimal costPrice;
+
     /** 交易费率（%）：买入/卖出自动按 价×量×(1±费率/100) 计入手续费，null/0 表示不计 */
     private BigDecimal feeRate;
 
@@ -82,6 +89,14 @@ public class Investment {
 
     public void setLive(Boolean live) {
         this.live = live;
+    }
+
+    public java.math.BigDecimal getCostPrice() {
+        return costPrice;
+    }
+
+    public void setCostPrice(java.math.BigDecimal costPrice) {
+        this.costPrice = costPrice;
     }
 
     public Long getId() {
