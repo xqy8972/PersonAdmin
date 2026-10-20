@@ -310,8 +310,6 @@
     .idch-head > div { display: none !important; }
     .idch-pills { display: flex !important; gap: 6px; margin: 6px 0 2px; overflow-x: auto; scrollbar-width: none; }
     .idch-pills::-webkit-scrollbar { display: none; }
-    /* 图下方的区间行（盈亏走势）：间距挪到上面 */
-    .idch-pills-bottom { margin: 8px 0 0 !important; }
     /* 展开区去卡片化：白框套白框很丑，图表直接铺满 */
     .inv-card-charts .el-card { box-shadow: none !important; background: transparent; border-radius: 0; }
     .inv-card-charts .el-card__body { padding: 0 !important; }
@@ -2967,10 +2965,10 @@ const InvestProfitHistoryChart = {
         <el-radio-button value="all">全部</el-radio-button>
       </el-radio-group>
     </div>
-    <div ref="el" class="idch" style="height:300px;margin-top:8px"></div>
-    <div class="rp-pills idch-pills idch-pills-bottom">
+    <div class="rp-pills idch-pills">
       <span v-for="o in CHART_RANGE_OPTS" :key="o.v" class="rp-pill" :class="{ on: range === o.v }" @click="range = o.v">{{ o.t }}</span>
     </div>
+    <div ref="el" class="idch" style="height:300px;margin-top:8px"></div>
   </el-card>`
 };
 
