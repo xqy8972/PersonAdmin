@@ -50,6 +50,19 @@ public class IndexController {
         }
     }
 
+    // 修改密码必须走鉴权拦截（/api/auth/** 是免登录的，不能放那里），从 token 中取当前用户
+    @PostMapping("/api/user/password")
+    public Result<Void> changePassword(@RequestBody Map<String, String> body) {
+        try {
+            authService.changePassword(body.get("oldPassword"), body.get("newPassword"));
+            return Result.ok();
+        } catch (BizException e) {
+            return Result.error(e.getCode(), e.getMessage());
+        } catch (Exception e) {
+            return Result.error(500, e.getMessage());
+        }
+    }
+
     // ---------------- 统计 ----------------
 
     @GetMapping("/api/stats/dashboard")

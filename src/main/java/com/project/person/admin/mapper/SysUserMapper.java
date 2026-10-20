@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface SysUserMapper {
@@ -19,4 +20,7 @@ public interface SysUserMapper {
     @Insert("INSERT INTO sys_user (username, password, nickname) VALUES (#{username}, #{password}, #{nickname})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(SysUser user);
+
+    @Update("UPDATE sys_user SET password = #{password} WHERE id = #{id}")
+    int updatePassword(@Param("id") Long id, @Param("password") String password);
 }

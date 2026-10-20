@@ -3772,7 +3772,26 @@ const MobileProfilePage = {
       store.clear('nickname');
       window.dispatchEvent(new Event('pm-auth-changed'));
     };
-    return { nickname, avatar, logout };
+    /* 修改密码：先输旧密码，校验通过才允许设新密码，新密码输两遍 */
+    const pwdDlg = ref(false);
+    const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' });
+    const pwdSaving = ref(false);
+    const openPwd = () => { pwdForm.oldPassword = ''; pwdForm.newPassword = ''; pwdForm.confirmPassword = ''; pwdDlg.value = true; };
+    const savePwd = async () => {
+      if (!pwdForm.oldPassword) return ElMessage.warning('请输入旧密码');
+      if (!pwdForm.newPassword) return ElMessage.warning('请输入新密码');
+      if (pwdForm.newPassword.length < 6) return ElMessage.warning('新密码至少 6 位');
+      if (pwdForm.newPassword !== pwdForm.confirmPassword) return ElMessage.warning('两次输入的新密码不一致');
+      pwdSaving.value = true;
+      try {
+        await apiPost('/user/password', { oldPassword: pwdForm.oldPassword, newPassword: pwdForm.newPassword });
+        ElMessage.success('密码修改成功');
+        pwdDlg.value = false;
+      } catch (e) { /* 统一异常提示已由 apiRequest 弹出 */ } finally {
+        pwdSaving.value = false;
+      }
+    };
+    return { nickname, avatar, logout, pwdDlg, pwdForm, pwdSaving, openPwd, savePwd };
   },
   template: `<div class="m-wrap">
     <div class="m-sec" style="padding:28px 16px 18px;text-align:center">
@@ -3780,9 +3799,27 @@ const MobileProfilePage = {
       <div style="font-size:18px;font-weight:600;color:#1d1d1f;margin-top:12px">{{ nickname }}</div>
       <div style="font-size:12px;color:#86868b;margin-top:4px">账号：{{ nickname }}</div>
       <div style="padding:22px 0 10px">
+        <el-button style="width:100%;margin-bottom:12px" @click="openPwd">修改密码</el-button>
         <el-button type="danger" plain style="width:100%" @click="logout">退出登录</el-button>
       </div>
     </div>
+    <el-dialog v-model="pwdDlg" title="修改密码" width="88%" style="max-width:360px" align-center>
+      <el-form label-position="top" style="gap:2px">
+        <el-form-item label="旧密码">
+          <el-input v-model="pwdForm.oldPassword" type="password" show-password placeholder="请输入旧密码" />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="pwdForm.newPassword" type="password" show-password placeholder="至少 6 位" />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="pwdForm.confirmPassword" type="password" show-password placeholder="再输一遍新密码" @keyup.enter="savePwd" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pwdDlg = false">取消</el-button>
+        <el-button type="primary" :loading="pwdSaving" @click="savePwd">确定</el-button>
+      </template>
+    </el-dialog>
   </div>`
 };
 
