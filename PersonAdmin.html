@@ -209,6 +209,7 @@
   .m-empty { color: #b0b4bb; font-size: 13px; padding: 14px 0; text-align: center; }
   .m-link { display: flex; align-items: center; gap: 10px; padding: 13px 16px; background: #fff; border-radius: 16px; box-shadow: 0 4px 16px rgba(80, 100, 160, .08); margin-bottom: 12px; font-size: 14.5px; font-weight: 500; color: #1d1d1f; cursor: pointer; }
   .inv-cards { display: none; }
+  .mob-assets { display: none; }
 
   /* ===== 移动端区间胶囊 + 滑轮日期弹层 ===== */
   .rp-pills { display: none; flex-wrap: nowrap; gap: 8px; }
@@ -278,8 +279,18 @@
     .inv-card-ops .el-button + .el-button { margin-left: 0; }
     .inv-card-charts { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
     /* 图表：移动端图大标尺小；区间改胶囊，桌面月选择器隐藏 */
-    .rp-pills { display: flex; }
-    .desk-range { display: none; }
+    .rp-pills { display: flex; gap: 5px; }
+    /* 一行放不下就缩小字体，保证胶囊不换行 */
+    .rp-pill { padding: 3px 9px; font-size: 11.5px; flex-shrink: 0; }
+    /* 日期框根元素命中 .el-range-editor.el-input__wrapper（优先级 0,3,0），普通类压不过，必须 !important */
+    .desk-range.el-range-editor, .desk-range { display: none !important; }
+    /* 健康页图表：单选区间一行不换行 + 移动端压扁 */
+    .mob-pills { flex-wrap: nowrap !important; }
+    .mob-pills .el-radio-button__inner { padding: 4px 9px; font-size: 12px; }
+    .m-chart { height: 200px !important; }
+    /* 资产页：桌面表格与移动端列表互斥 */
+    .desk-tbl { display: none; }
+    .mob-assets { display: block; }
     .chart-canvas { min-height: 200px !important; }
     /* 投资页：移动端隐藏渠道同步按钮 */
     .desk-only { display: none !important; }
@@ -1192,43 +1203,6 @@ const InvestmentPage = {
   template: InvestmentPageRaw.template
 };
 
-/* ---------------- 净资产概览（资产合计 + 投资合计按类型 + 净资产） ---------------- */
-const NetWorthCard = {
-  setup() {
-    const assets = ref([]);
-    const invests = ref([]);
-    const load = async () => {
-      const a = await apiGet('/asset/list').catch(() => []);
-      const i = await apiGet('/investment/list').catch(() => []);
-      assets.value = Array.isArray(a) ? a : (a ? a.list || [] : []);
-      invests.value = Array.isArray(i) ? i : (i ? i.list || [] : []);
-    };
-    const num = x => Number(x) || 0;
-    const assetTotal = computed(() => assets.value.reduce((s, x) => s + num(x.value), 0));
-    const investTotal = computed(() => invests.value.reduce((s, x) => s + num(x.currentValue), 0));
-    const byType = computed(() => {
-      const g = {};
-      invests.value.forEach(x => {
-        const t = x.type || '其他';
-        g[t] = (g[t] || 0) + num(x.currentValue);
-      });
-      return Object.keys(g).map(k => ({ type: k, value: Math.round(g[k] * 100) / 100 }));
-    });
-    onMounted(load);
-    window.addEventListener('pm-data-changed', load);
-    return { assetTotal, investTotal, byType, fmt };
-  },
-  template: `<el-card style="margin-bottom:16px">
-    <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:center">
-      <div><div class="stat-title">净资产</div><div class="stat-value blue">¥ {{ fmt(assetTotal + investTotal) }}</div></div>
-      <div style="flex:1"></div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <el-tag v-for="t in byType" :key="t.type" effect="plain" size="large">{{ t.type }} ¥ {{ fmt(t.value) }}</el-tag>
-      </div>
-    </div>
-  </el-card>`
-};
-
 /* ---------------- 汇率页（美元/日元/港元/欧元/英镑 兑人民币，10 分钟自动刷新） ---------------- */
 const FxPage = {
   setup() {
@@ -1289,22 +1263,21 @@ const AssetPageRaw = makeCrudPage({
   api: '/asset', title: '资产', totalField: 'value',
   validate: f => { if (!f.name) { ElMessage.warning('请填写资产名称'); return false; } return true; },
   empty: () => ({ name: '', category: '现金', value: null, changeDate: todayStr(), remark: '' }),
-  template: `<NetWorthCard />
-  <div style="display:flex;gap:16px;margin-bottom:16px;align-items:stretch;height:640px" class="mob-row">
-    <div style="width:440px;flex-shrink:0;display:flex"><AssetPieChart /></div>
-    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:16px">
-      <div style="flex:1;min-height:0;display:flex"><AssetTotalTrendChart /></div>
-      <div style="flex:1;min-height:0;display:flex"><AssetDetailTrendChart /></div>
+  template: `<el-card style="margin-bottom:16px">
+  <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:center">
+    <div><div class="stat-title">净资产（资产+投资）</div><div class="stat-value blue">¥ {{ fmt(total) }}</div></div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <el-tag v-for="t in byType" :key="t.type" effect="plain" size="large">{{ t.type }} ¥ {{ fmt(t.value) }}</el-tag>
     </div>
   </div>
-  <el-card>
-    <div class="toolbar">
-      <span style="line-height:32px;color:#606266">资产总值：</span>
-      <span style="line-height:32px;font-weight:bold;color:#e6a23c;font-size:18px">¥ {{ fmt(total) }}</span>
-      <div style="flex:1"></div>
-      <el-button type="primary" @click="openDialog()">新增资产</el-button>
-    </div>
-    <el-table :data="list" stripe>
+  <div class="toolbar" style="margin:14px 0 4px">
+    <span style="line-height:32px;color:#606266">资产总值：</span>
+    <span style="line-height:32px;font-weight:bold;color:#e6a23c;font-size:18px">¥ {{ fmt(total) }}</span>
+    <div style="flex:1"></div>
+    <el-button type="primary" @click="openDialog()">新增资产</el-button>
+  </div>
+    <el-table :data="list" stripe class="desk-tbl">
       <el-table-column label="资产名称" min-width="150" show-overflow-tooltip>
         <template #default="{ row }">
           <el-tag v-if="row._invest" size="small" type="warning" effect="plain" style="margin-right:6px">投资</el-tag>{{ row.name }}
@@ -1328,6 +1301,26 @@ const AssetPageRaw = makeCrudPage({
         </template>
       </el-table-column>
     </el-table>
+    <!-- 移动端：卡片式资产列表，免横向滑动 -->
+    <div class="mob-assets">
+      <div class="m-line" v-for="row in list" :key="row.id">
+        <div class="m-line-main">
+          <div class="m-line-name"><el-tag v-if="row._invest" size="small" type="warning" effect="plain">投资</el-tag>{{ row.name }}</div>
+          <div class="m-line-sub">{{ row.category }}<template v-if="row.remark"> · {{ row.remark }}</template></div>
+        </div>
+        <div class="m-line-num"><div class="amt">¥ {{ fmt(row.value) }}</div></div>
+        <div style="display:flex;gap:2px;flex-shrink:0">
+          <template v-if="!row._invest">
+            <el-button v-if="sellable(row)" size="small" text type="warning" @click="openSell(row)">卖出</el-button>
+            <el-button size="small" text type="primary" @click="openDialog(row)">编辑</el-button>
+            <el-button size="small" text type="danger" @click="handleDelete(row.id)">删除</el-button>
+          </template>
+          <span v-else style="color:#c0c4cc;font-size:12px;line-height:24px">仅展示</span>
+        </div>
+      </div>
+      <div v-if="!list.length" class="m-empty">暂无资产</div>
+    </div>
+    <div style="height:340px;margin-top:10px"><AssetPieChart /></div>
     <el-dialog v-model="dialogVisible" :title="(form.id ? '编辑' : '新增') + '资产'" width="440px">
       <el-form label-width="80px">
         <el-form-item label="名称"><el-input v-model="form.name" placeholder="如：招商银行储蓄卡" /></el-form-item>
@@ -1365,7 +1358,11 @@ const AssetPageRaw = makeCrudPage({
         <el-button type="warning" @click="handleSell">确认卖出</el-button>
       </template>
     </el-dialog>
-  </el-card>`
+  </el-card>
+  <div style="display:flex;flex-direction:column;gap:16px;margin-bottom:16px">
+    <div style="height:320px;display:flex"><AssetTotalTrendChart /></div>
+    <div style="height:320px;display:flex"><AssetDetailTrendChart /></div>
+  </div>`
 });
 
 /* ---------------- 资产列表并入投资（只读展示，增删改请到投资页） ---------------- */
@@ -1395,6 +1392,15 @@ const AssetPage = {
     const list = computed(() => [...base.list.value, ...invests.value]);
     const num = x => Number(x) || 0;
     const total = computed(() => list.value.reduce((s, x) => s + num(x.value), 0));
+    // 净资产卡片右上：投资按类型汇总（仅持仓市值 > 0 的）
+    const byType = computed(() => {
+      const g = {};
+      invests.value.forEach(x => {
+        const t = (x.category || '').replace(/^投资·/, '') || '其他';
+        g[t] = (g[t] || 0) + num(x.value);
+      });
+      return Object.keys(g).map(k => ({ type: k, value: Math.round(g[k] * 100) / 100 }));
+    });
     onMounted(loadInvests);
     window.addEventListener('pm-data-changed', loadInvests);
     onBeforeUnmount(() => window.removeEventListener('pm-data-changed', loadInvests));
@@ -1417,7 +1423,7 @@ const AssetPage = {
         window.dispatchEvent(new Event('pm-data-changed'));
       } catch (e) { /* 拦截层已提示 */ }
     };
-    return { ...base, list, total, sellable, sellVisible, sellRow, sellForm, openSell, handleSell };
+    return { ...base, list, total, byType, sellable, sellVisible, sellRow, sellForm, openSell, handleSell };
   },
   template: AssetPageRaw.template
 };
@@ -1480,7 +1486,7 @@ const WeightTrendChart = {
       </div>
       <div style="display:flex;align-items:center;gap:12px">
         <slot name="actions"></slot>
-        <el-radio-group v-model="range" size="small">
+        <el-radio-group v-model="range" size="small" class="mob-pills">
         <el-radio-button :value="7">近1周</el-radio-button>
         <el-radio-button :value="14">近2周</el-radio-button>
         <el-radio-button :value="30">近1月</el-radio-button>
@@ -1489,7 +1495,7 @@ const WeightTrendChart = {
       </el-radio-group>
       </div>
     </div>
-    <div ref="el" style="height:280px;margin-top:0"></div>
+    <div ref="el" class="m-chart" style="height:280px;margin-top:0"></div>
   </el-card>`
 };
 
@@ -1549,7 +1555,7 @@ const DietCalorieChart = {
   template: `<div>
     <div style="display:flex;justify-content:space-between;align-items:center">
       <b style="color:#1d1d1f;font-size:15px">饮食摄入热量</b>
-      <el-radio-group v-model="range" size="small">
+      <el-radio-group v-model="range" size="small" class="mob-pills">
         <el-radio-button :value="7">近1周</el-radio-button>
         <el-radio-button :value="14">近2周</el-radio-button>
         <el-radio-button :value="30">近1月</el-radio-button>
@@ -1557,7 +1563,7 @@ const DietCalorieChart = {
         <el-radio-button :value="0">全部</el-radio-button>
       </el-radio-group>
     </div>
-    <div ref="el" style="height:280px;margin-top:8px;margin-bottom:4px"></div>
+    <div ref="el" class="m-chart" style="height:280px;margin-top:8px;margin-bottom:4px"></div>
   </div>`
 };
 
@@ -3413,7 +3419,6 @@ app.component('InvestProfitChart', InvestProfitChart);
 app.component('AssetTotalTrendChart', AssetTotalTrendChart);
 app.component('AssetDetailTrendChart', AssetDetailTrendChart);
 app.component('AssetPieChart', AssetPieChart);
-app.component('NetWorthCard', NetWorthCard);
 app.component('InvestDailyChart', InvestDailyChart);
 app.component('InvestProfitHistoryChart', InvestProfitHistoryChart);
 app.component('InvestPieCard', InvestPieCard);
