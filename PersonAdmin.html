@@ -304,10 +304,12 @@
     /* 投资展开图：标题独占一行（卡片左上），区间胶囊在标题下面一行（与总市值趋势卡片一致） */
     .idch-head { display: block !important; padding: 0 2px; }
     .idch-head > b { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    /* 移动端：桌面单选组与累计盈亏整组收起，区间用胶囊行 */
-    .idch-head > div { display: none; }
+    /* 移动端：桌面单选组与累计盈亏整组收起（模板带内联 display:flex，必须 !important 才压得住），区间用胶囊行 */
+    .idch-head > div { display: none !important; }
     .idch-pills { display: flex !important; gap: 6px; margin: 6px 0 2px; overflow-x: auto; scrollbar-width: none; }
     .idch-pills::-webkit-scrollbar { display: none; }
+    /* 图下方的区间行（盈亏走势）：间距挪到上面 */
+    .idch-pills-bottom { margin: 8px 0 0 !important; }
     /* 展开区去卡片化：白框套白框很丑，图表直接铺满 */
     .inv-card-charts .el-card { box-shadow: none !important; background: transparent; border-radius: 0; }
     .inv-card-charts .el-card__body { padding: 0 !important; }
@@ -2183,22 +2185,31 @@ const MobileWheelRange = {
       if (k === 'em') return { list: months12, get: () => sel.em, set: v => sel.em = v };
       return { list: Array.from({ length: eDays.value }, (_, i) => i + 1), get: () => sel.ed, set: v => sel.ed = v };
     };
-    // 吸附核心：滚轮当前位置 → 最近一行 → 回写选中值（标题联动靠这里）
-    const snap = (k, el) => {
+    // 吸附核心：滚轮当前位置 → 最近一行（不写 scrollTop，滚动过程自由）
+    const idxOf = (k, el) => {
       const conf = confOf(k);
       let idx = Math.round(el.scrollTop / H);
-      idx = Math.max(0, Math.min(idx, conf.list.length - 1));
-      if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
-      if (conf.get() !== conf.list[idx]) conf.set(conf.list[idx]);
+      return Math.max(0, Math.min(idx, conf.list.length - 1));
     };
-    // 滚动过程中防抖吸附（注意：模板里必须 @scroll="onWheel('k', $event)" 传入事件，
-    // 写成 onWheel('k') 时 Vue 会把返回的闭包丢弃，滚动永远不回写）
+    const syncFromEl = (k, el) => {
+      const conf = confOf(k);
+      const i = idxOf(k, el);
+      if (conf.get() !== conf.list[i]) conf.set(conf.list[i]);
+    };
+    const snap = (k, el) => {
+      const i = idxOf(k, el);
+      if (Math.abs(el.scrollTop - i * H) > 1) el.scrollTop = i * H;
+      syncFromEl(k, el);
+    };
+    // 滚动过程实时同步选中值：标题与滚轮中心行始终一致（不等防抖，规避惯性期间读错/不同步）；
+    // 停止后再做一次吸附对齐（模板必须 @scroll="onWheel('k', $event)" 传入事件）
     const onWheel = (k, ev) => {
       const el = ev.target;
+      syncFromEl(k, el);
       clearTimeout(el._wt);
-      el._wt = setTimeout(() => snap(k, el), 90);
+      el._wt = setTimeout(() => snap(k, el), 120);
     };
-    // 手指抬起后再延迟对齐一次：兜住惯性滚动的尾巴，移动端滚一次后不同步/卡住靠它兜底
+    // 手指抬起后再延迟对齐一次：兜住惯性滚动的尾巴
     const onLift = (k, ev) => {
       const el = ev.target;
       clearTimeout(el._wt2);
@@ -2658,6 +2669,18 @@ const InvestDailyChart = {
       });
       const daily = vals.map((v, i) => i === 0 ? 0
           : Math.round((v - vals[i - 1] - (flowByDay[dts[i]] || 0)) * 100) / 100);
+      // 移动端同花顺式日K：收盘价合成蜡烛（开=昨收、高/低=开收两极），涨红跌绿；附 MA5/MA10/MA20
+      const mob = window.innerWidth <= 768;
+      const candles = prices.map((p, i) => {
+        const o = i === 0 ? p : prices[i - 1];
+        return [o, p, Math.min(o, p), Math.max(o, p)]; // echarts K线：[开, 收, 低, 高]
+      });
+      const maOf = n => prices.map((_, i) => {
+        if (i < n - 1) return null;
+        let s = 0;
+        for (let j = i - n + 1; j <= i; j++) s += prices[j];
+        return Math.round(s / n * 10000) / 10000;
+      });
       // 买卖标记：拆成买入/卖出两个 scatter 系列，同色同日的标记用 symbolOffset 左右错开，不再重叠
       const priceByDate = {};
       trend.forEach(t => { priceByDate[(t.date || '').slice(0, 10)] = num(t.price); });
@@ -2690,7 +2713,6 @@ const InvestDailyChart = {
       };
       // 移动端参考同花顺日K：只留左侧市值轴刻度，右侧盈亏/价格轴保留走势但隐藏刻度（游标太占地方）；
       // x 轴只留约 4 个标签，放不下就少展示，避免重叠
-      const mob = window.innerWidth <= 768;
       const xStep = Math.max(1, Math.ceil(dts.length / 4));
       chart.setOption({
         textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
@@ -2711,6 +2733,15 @@ const InvestDailyChart = {
                         (t.amount != null ? '　金额 ¥ ' + Number(t.amount).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '');
               } else if (p.seriesName === '价格') {
                 html += `<br/>${p.marker}${p.seriesName}：${Number(p.value).toFixed(4)} ${priceUnit}`;
+              } else if (p.seriesName === '价格K线') {
+                // K线悬停：收盘价 + 涨跌幅（涨红跌绿）
+                const v = p.value || [];
+                const chg = v.length > 1 ? v[1] - v[0] : 0;
+                const pct = v[0] ? (chg / v[0] * 100).toFixed(2) : '0.00';
+                html += `<br/>${p.marker}收盘 ${Number(v[1]).toFixed(4)} ${priceUnit}　` +
+                        `<span style="color:${chg >= 0 ? '#ff3b30' : '#34c759'}">${chg >= 0 ? '+' : ''}${chg.toFixed(4)}（${pct}%）</span>`;
+              } else if (p.seriesName.indexOf('MA') === 0) {
+                html += `<br/>${p.marker}${p.seriesName}：${Number(p.value).toFixed(4)}`;
               } else {
                 html += `<br/>${p.marker}${p.seriesName}：¥ ${Number(p.value).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
               }
@@ -2719,7 +2750,7 @@ const InvestDailyChart = {
           }
         },
         legend: mob
-          ? { data: ['市值', '当日盈亏', '价格', '买入点', '卖出点'], top: 2, right: 2, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10, color: '#6e6e73' } }
+          ? { data: ['市值', '当日盈亏', '价格K线', '买入点', '卖出点'], top: 2, right: 2, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10, color: '#6e6e73' } }
           : { data: ['市值', '当日盈亏', '价格', '买入点', '卖出点'], top: 4, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
         grid: { left: 10, right: mob ? 8 : 10, top: mob ? 28 : 40, bottom: 4, containLabel: true },
         xAxis: {
@@ -2769,15 +2800,28 @@ const InvestDailyChart = {
             label: { show: true, position: 'inside', formatter: p => p.data.name,
                      color: '#fff', fontSize: 11, fontWeight: 'bold' }
           },
-          {
+          // 价格展示：移动端同花顺日K（收盘价蜡烛，涨红跌绿）+ MA5/MA10/MA20；桌面端保持灰色价格折线
+          mob ? {
+            name: '价格K线', type: 'candlestick', yAxisIndex: 2, data: candles,
+            itemStyle: { color: '#ff3b30', color0: '#34c759', borderColor: '#ff3b30', borderColor0: '#34c759' },
+            // 短虚线买卖标记挂在价格轴系列上（markLine 的 y 值随所属系列的价格轴解释）
+            markLine: stems.length ? {
+              silent: true, symbol: 'none',
+              data: stems
+            } : undefined
+          } : {
             name: '价格', type: 'line', yAxisIndex: 2, data: prices, symbol: 'none',
             lineStyle: { width: 1.5, color: '#8e8e93' }, itemStyle: { color: '#8e8e93' },
-            // 短虚线买卖标记挂在价格系列上（markLine 的 y 值随所属系列的价格轴解释）
             markLine: stems.length ? {
               silent: true, symbol: 'none',
               data: stems
             } : undefined
           },
+          ...(mob ? [
+            { name: 'MA5', type: 'line', yAxisIndex: 2, data: maOf(5), symbol: 'none', smooth: true, lineStyle: { width: 1, color: '#f5a623' }, itemStyle: { color: '#f5a623' } },
+            { name: 'MA10', type: 'line', yAxisIndex: 2, data: maOf(10), symbol: 'none', smooth: true, lineStyle: { width: 1, color: '#9b59b6' }, itemStyle: { color: '#9b59b6' } },
+            { name: 'MA20', type: 'line', yAxisIndex: 2, data: maOf(20), symbol: 'none', smooth: true, lineStyle: { width: 1, color: '#2f6fce' }, itemStyle: { color: '#2f6fce' } }
+          ] : []),
           {
             name: '当日盈亏', type: 'bar', yAxisIndex: 1, data: daily, barMaxWidth: 8,
             itemStyle: { color: p => p.value >= 0 ? 'rgba(255,59,48,0.75)' : 'rgba(52,199,89,0.75)', borderRadius: [2, 2, 2, 2] }
@@ -2916,10 +2960,10 @@ const InvestProfitHistoryChart = {
         <el-radio-button value="all">全部</el-radio-button>
       </el-radio-group>
     </div>
-    <div class="rp-pills idch-pills">
+    <div ref="el" class="idch" style="height:300px;margin-top:8px"></div>
+    <div class="rp-pills idch-pills idch-pills-bottom">
       <span v-for="o in CHART_RANGE_OPTS" :key="o.v" class="rp-pill" :class="{ on: range === o.v }" @click="range = o.v">{{ o.t }}</span>
     </div>
-    <div ref="el" class="idch" style="height:300px;margin-top:8px"></div>
   </el-card>`
 };
 
@@ -3336,17 +3380,26 @@ const MonthWheel = {
     const sel = reactive({ y: p[0], m: p[1] || 1 });
     const root = ref(null);
     const listOf = k => k === 'y' ? years : months12;
-    const snap = (k, el) => {
+    const idxOf = (k, el) => {
       const list = listOf(k);
       let idx = Math.round(el.scrollTop / H);
-      idx = Math.max(0, Math.min(idx, list.length - 1));
-      if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
-      if (sel[k] !== list[idx]) sel[k] = list[idx];
+      return Math.max(0, Math.min(idx, list.length - 1));
+    };
+    const syncFromEl = (k, el) => {
+      const list = listOf(k);
+      const i = idxOf(k, el);
+      if (sel[k] !== list[i]) sel[k] = list[i];
+    };
+    const snap = (k, el) => {
+      const i = idxOf(k, el);
+      if (Math.abs(el.scrollTop - i * H) > 1) el.scrollTop = i * H;
+      syncFromEl(k, el);
     };
     const onWheel = (k, ev) => {
       const el = ev.target;
+      syncFromEl(k, el);
       clearTimeout(el._wt);
-      el._wt = setTimeout(() => snap(k, el), 90);
+      el._wt = setTimeout(() => snap(k, el), 120);
     };
     // 手指抬起后延迟再对齐一次，兜住惯性滚动尾巴
     const onLift = (k, ev) => {
@@ -3413,17 +3466,26 @@ const DayWheel = {
       if (k === 'm') return { list: months12, get: () => sel.m, set: v => sel.m = v };
       return { list: Array.from({ length: days.value }, (_, i) => i + 1), get: () => sel.d, set: v => sel.d = v };
     };
-    const snap = (k, el) => {
+    const idxOf = (k, el) => {
       const conf = confOf(k);
       let idx = Math.round(el.scrollTop / H);
-      idx = Math.max(0, Math.min(idx, conf.list.length - 1));
-      if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
-      if (conf.get() !== conf.list[idx]) conf.set(conf.list[idx]);
+      return Math.max(0, Math.min(idx, conf.list.length - 1));
+    };
+    const syncFromEl = (k, el) => {
+      const conf = confOf(k);
+      const i = idxOf(k, el);
+      if (conf.get() !== conf.list[i]) conf.set(conf.list[i]);
+    };
+    const snap = (k, el) => {
+      const i = idxOf(k, el);
+      if (Math.abs(el.scrollTop - i * H) > 1) el.scrollTop = i * H;
+      syncFromEl(k, el);
     };
     const onWheel = (k, ev) => {
       const el = ev.target;
+      syncFromEl(k, el);
       clearTimeout(el._wt);
-      el._wt = setTimeout(() => snap(k, el), 90);
+      el._wt = setTimeout(() => snap(k, el), 120);
     };
     // 手指抬起后延迟再对齐一次，兜住惯性滚动尾巴
     const onLift = (k, ev) => {

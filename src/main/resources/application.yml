@@ -6,8 +6,8 @@ spring:
     name: PersonAdmin
   servlet:
     multipart:
-      max-file-size: 10MB      # 识图上传单张图片上限
-      max-request-size: 50MB   # 批量上传总上限
+      max-file-size: 20MB      # 识图上传单张图片上限
+      max-request-size: 200MB  # 批量上传总上限（9 张手机原图可能 40MB+；注意 nginx 还要配 client_max_body_size）
   datasource:
     # MySQL 8.x（本机）：表结构用 src/main/resources/schema-mysql.sql 一次性建好；
     # 注意 spring.sql.init 必须保持 never（H2 方言的 schema.sql 不能在 MySQL 执行），
