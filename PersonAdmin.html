@@ -208,12 +208,13 @@
   .m-badge.live { background: #fde3e3; color: #d4380d; }
   .m-empty { color: #b0b4bb; font-size: 13px; padding: 14px 0; text-align: center; }
   .m-link { display: flex; align-items: center; gap: 10px; padding: 13px 16px; background: #fff; border-radius: 16px; box-shadow: 0 4px 16px rgba(80, 100, 160, .08); margin-bottom: 12px; font-size: 14.5px; font-weight: 500; color: #1d1d1f; cursor: pointer; }
+  .inv-cards { display: none; }
 
   /* ===== 移动端区间胶囊 + 滑轮日期弹层 ===== */
   .rp-pills { display: none; flex-wrap: wrap; gap: 8px; }
   .rp-pill { padding: 5px 14px; border-radius: 999px; background: #f2f3f5; color: #6e6e73; font-size: 13px; cursor: pointer; user-select: none; }
   .rp-pill.on { background: #2f6fce; color: #fff; font-weight: 600; }
-  .wr-mask { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); z-index: 300; display: flex; align-items: flex-end; justify-content: center; }
+  .wr-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, .45); z-index: 300; display: flex; align-items: flex-end; justify-content: center; }
   .wr-sheet { background: #fff; width: 100%; max-width: 480px; border-radius: 18px 18px 0 0; padding: 14px 18px calc(18px + env(safe-area-inset-bottom)); animation: wrUp .22s ease; }
   @keyframes wrUp { from { transform: translateY(40%); opacity: .5; } to { transform: none; opacity: 1; } }
   .wr-head { display: flex; justify-content: space-between; align-items: center; font-size: 15px; color: #1d1d1f; }
@@ -257,10 +258,29 @@
     .m-tabbar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 100; background: rgba(255, 255, 255, .96); backdrop-filter: blur(12px); border-top: 1px solid #eceef2; padding-bottom: env(safe-area-inset-bottom); }
     .m-tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 9px 0 7px; font-size: 11px; color: #8e8e93; cursor: pointer; }
     .m-tab.active { color: #2f6fce; font-weight: 600; }
+    /* 投资列表：移动端卡片式，免横向滑动，信息一屏展示 */
+    .inv-cards { display: flex; flex-direction: column; gap: 12px; }
+    .inv-card { background: #fff; border-radius: 16px; box-shadow: 0 4px 16px rgba(80, 100, 160, .08); padding: 14px 16px; }
+    .inv-card-head { display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; }
+    .inv-card-name { font-size: 15.5px; font-weight: 600; color: #1d1d1f; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .inv-type { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: #f2f3f5; color: #6e6e73; font-weight: 500; }
+    .inv-card-sub { font-size: 12px; color: #86868b; margin-top: 4px; }
+    .inv-card-num { text-align: right; flex-shrink: 0; }
+    .inv-card-num .amt { font-size: 17px; font-weight: 700; color: #1d1d1f; font-variant-numeric: tabular-nums; }
+    .inv-card-num .chg { font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+    .inv-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #f4f5f7; }
+    .inv-card-grid > div { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; }
+    .inv-card-grid label { color: #86868b; flex-shrink: 0; }
+    .inv-card-grid b { font-weight: 600; color: #1d1d1f; font-variant-numeric: tabular-nums; }
+    .inv-card-remark { margin-top: 8px; font-size: 12px; color: #a8abb2; }
+    .inv-card-ops { display: flex; gap: 8px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
+    .inv-card-tip { color: #a8abb2; font-size: 12px; flex: 1; }
+    .inv-card-ops .el-button + .el-button { margin-left: 0; }
+    .inv-card-charts { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
     /* 图表：移动端图大标尺小；区间改胶囊，桌面月选择器隐藏 */
     .rp-pills { display: flex; }
     .desk-range { display: none; }
-    .chart-canvas { min-height: 330px !important; }
+    .chart-canvas { min-height: 240px !important; }
     /* 投资页顶部图表卡（含饼图）在移动端堆叠时有明确高度，避免 flex:1 塌陷成 0 */
     .mob-row > .chart-card { min-height: 320px; }
   }
@@ -700,7 +720,7 @@ const InvestmentPageRaw = makeCrudPage({
       <el-button plain @click="openChannels">渠道同步</el-button>
       <el-button plain @click="refreshQuotes">刷新行情</el-button>
     </div>
-    <el-table :data="list" stripe row-key="id" ref="tableRef" @row-click="toggleExpand" style="cursor:pointer">
+    <el-table v-if="!mob" :data="list" stripe row-key="id" ref="tableRef" @row-click="toggleExpand" style="cursor:pointer">
       <el-table-column type="expand">
         <template #default="{ row }">
           <div style="padding:4px 16px 16px">
@@ -789,6 +809,44 @@ const InvestmentPageRaw = makeCrudPage({
         </template>
       </el-table-column>
     </el-table>
+    <div v-else class="inv-cards">
+      <div v-for="row in list" :key="row.id" class="inv-card">
+        <div class="inv-card-head" @click="toggleCard(row)">
+          <div class="inv-card-main">
+            <div class="inv-card-name">{{ row.name }}<span class="inv-type">{{ row.type }}</span><span v-if="row.sourceChannel" class="src-badge">{{ channelName(row.sourceChannel) }}</span><span v-if="row.live" class="live-badge">盘中</span></div>
+            <div class="inv-card-sub">{{ isShareType(row.type) ? '持有 ' + shareCount(row) + (row.type === '基金' ? ' 份 · ' : ' 股 · ') : '' }}买入 {{ row.buyDate }}</div>
+          </div>
+          <div class="inv-card-num">
+            <div class="amt">¥ {{ fmt(row.currentValue) }}</div>
+            <div class="chg" :class="(row.currentValue - row.amount) >= 0 ? 'green' : 'red'">{{ ((row.currentValue - row.amount) >= 0 ? '+' : '') + fmt(row.currentValue - row.amount) }}</div>
+          </div>
+        </div>
+        <div class="inv-card-grid">
+          <div><label>最新价</label><b v-if="isShareType(row.type) && row.price != null">{{ fmt(row.price) }}{{ (row.code || '').startsWith('hk') ? ' 港币' : ' 元' }}</b><b v-else style="color:#c0c4cc">—</b></div>
+          <div><label>成本价</label><b v-if="isShareType(row.type) && row.costPrice != null">{{ fmt(row.costPrice) }}</b><b v-else style="color:#c0c4cc">—</b></div>
+          <div><label>投入金额</label><b>¥ {{ fmt(row.amount) }}</b></div>
+          <div><label>最新盈亏</label><b v-if="row.dayProfit == null" style="color:#c0c4cc">—</b><b v-else :class="row.dayProfit >= 0 ? 'green' : 'red'">{{ (row.dayProfit >= 0 ? '+' : '') + fmt(row.dayProfit) }}</b></div>
+        </div>
+        <div v-if="row.remark" class="inv-card-remark">备注：{{ row.remark }}</div>
+        <div class="inv-card-ops">
+          <template v-if="row.sourceChannel">
+            <span class="inv-card-tip">渠道同步维护，不支持编辑/卖出</span>
+            <el-button size="small" type="danger" @click="handleDelete(row.id)">删除</el-button>
+          </template>
+          <template v-else>
+            <el-button v-if="isShareType(row.type)" size="small" type="success" @click="openBuy(row)">买入</el-button>
+            <el-button size="small" type="warning" @click="openSell(row)">卖出</el-button>
+            <el-button size="small" @click="openTrades(row)">交易记录</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row.id)">删除</el-button>
+          </template>
+        </div>
+        <div v-if="expandedId === row.id" class="inv-card-charts">
+          <InvestDailyChart :inv-id="row.id" />
+          <InvestProfitHistoryChart :inv-id="row.id" />
+        </div>
+      </div>
+      <div v-if="!list.length" class="m-empty">暂无投资</div>
+    </div>
     <el-dialog v-model="dialogVisible" :title="(form.id ? '编辑' : '新增') + '投资'" width="440px">
       <el-form label-width="90px">
         <el-form-item label="名称">
@@ -1110,7 +1168,14 @@ const InvestmentPage = {
       if (inWindow && document.visibilityState === 'visible') base.load();
     }, 10000);
     onUnmounted(() => clearInterval(quoteTimer));
-    return { ...base, isShareType, codePlaceholder,
+    /* 移动端：卡片式投资列表（免横向滑动），点击展开走势图 */
+    const mob = ref(window.innerWidth <= 768);
+    const onWinResize = () => { mob.value = window.innerWidth <= 768; };
+    window.addEventListener('resize', onWinResize);
+    onUnmounted(() => window.removeEventListener('resize', onWinResize));
+    const expandedId = ref(null);
+    const toggleCard = row => { expandedId.value = expandedId.value === row.id ? null : row.id; };
+    return { ...base, isShareType, codePlaceholder, mob, expandedId, toggleCard,
              sellVisible, sellRow, sellForm, openSell, handleSell,
              buyVisible, buyRow, buyForm, openBuy, handleBuy, refreshQuotes,
              tradesVisible, tradesRow, tradesList, openTrades,
@@ -1365,7 +1430,7 @@ const WeightTrendChart = {
       recs.sort((a, b) => (a.recordDate || '').localeCompare(b.recordDate || ''));
       chart.setOption({
         textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
-        grid: { left: 60, right: 24, top: 24, bottom: 28 },
+        grid: { left: 10, right: 14, top: 24, bottom: 4, containLabel: true },
         tooltip: { trigger: 'axis', valueFormatter: v => v + ' kg' },
         xAxis: {
           type: 'category', boundaryGap: false, data: recs.map(r => (r.recordDate || '').slice(5)),
@@ -1435,7 +1500,7 @@ const DietCalorieChart = {
       const data = (await apiGet('/diet/daily-summary', params).catch(() => [])) || [];
       chart.setOption({
         textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
-        grid: { left: 60, right: 24, top: 24, bottom: 28 },
+        grid: { left: 10, right: 14, top: 24, bottom: 4, containLabel: true },
         tooltip: { trigger: 'axis', valueFormatter: v => v + ' 千卡' },
         xAxis: {
           type: 'category', data: data.map(d => d.date.slice(5)),
@@ -1619,7 +1684,7 @@ const HomeTrendChart = {
         textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
         tooltip: { trigger: 'axis', valueFormatter: v => '¥ ' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) },
         legend: { data: ['收入', '支出'], top: 0, right: 8, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
-        grid: { left: 60, right: 16, top: 36, bottom: 28 },
+        grid: { left: 10, right: 16, top: 36, bottom: 4, containLabel: true },
         xAxis: {
           type: 'category', data: data.map(d => d.month.slice(2)),
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
@@ -1652,7 +1717,7 @@ const HomeTrendChart = {
   },
   template: `<el-card style="margin-bottom:0">
     <template #header><b style="color:#1d1d1f;font-size:15px">近 6 个月收支对比</b></template>
-    <div ref="el" style="height:300px"></div>
+    <div ref="el" style="height:260px"></div>
   </el-card>`
 };
 
@@ -1812,7 +1877,7 @@ const TrendChart = {
         textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
         tooltip: { trigger: 'axis', valueFormatter: v => '¥ ' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) },
         legend: { data: ['收入', '支出'], top: 8, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
-        grid: { left: 60, right: 24, top: 48, bottom: 32 },
+        grid: { left: 10, right: 18, top: 44, bottom: 6, containLabel: true },
         xAxis: {
           type: 'category', boundaryGap: false, data: data.map(d => d.month.slice(2)),
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
@@ -1857,11 +1922,11 @@ const TrendChart = {
   template: `<el-card style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <b style="color:#1d1d1f;font-size:15px">收支趋势</b>
-      <el-date-picker v-model="range" type="monthrange" value-format="YYYY-MM" :clearable="false"
+      <el-date-picker v-model="range" type="monthrange" value-format="YYYY-MM" :clearable="false" class="desk-range"
                       size="small" style="width:230px" range-separator="至"
                       start-placeholder="开始月" end-placeholder="结束月" @change="render" />
     </div>
-    <div ref="el" style="height:320px;margin-top:8px"></div>
+    <div ref="el" style="height:270px;margin-top:8px"></div>
   </el-card>`
 };
 
@@ -1923,11 +1988,12 @@ const MobileWheelRange = {
     const eText = computed(() => fmtDateCN(sel.ey, sel.em, sel.ed));
     const pad = n => String(n).padStart(2, '0');
     const ok = () => emit('confirm', sel.sy + '-' + pad(sel.sm) + '-' + pad(sel.sd), sel.ey + '-' + pad(sel.em) + '-' + pad(sel.ed));
-    return { root, years, months12, sDays, eDays, onWheel, sText, eText, ok };
+    const cancel = () => emit('cancel');
+    return { root, years, months12, sDays, eDays, onWheel, sText, eText, ok, cancel };
   },
-  template: `<div class="wr-mask" @click="$emit('cancel')">
+  template: `<div class="wr-mask" ref="root" @click="cancel">
     <div class="wr-sheet" @click.stop>
-      <div class="wr-head"><span class="wr-cancel" @click="$emit('cancel')">取消</span><b>选择日期范围</b><span class="wr-ok" @click="ok">确定</span></div>
+      <div class="wr-head"><span class="wr-cancel" @click="cancel">取消</span><b>选择日期范围</b><span class="wr-ok" @click="ok">确定</span></div>
       <div class="wr-title">{{ sText }}<i>至</i>{{ eText }}</div>
       <div class="wr-group">
         <span class="wr-label">开始</span>
@@ -2085,7 +2151,7 @@ const InvestTrendChart = {
         legend: mob
           ? { data: ['新增投入', '持仓成本', '总市值'], top: 4, right: 4, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10, color: '#6e6e73' } }
           : { data: ['新增投入', '持仓成本', '总市值'], top: 8, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
-        grid: mob ? { left: 8, right: 42, top: 30, bottom: 22 } : { left: 70, right: 24, top: 48, bottom: 32 },
+        grid: mob ? { left: 4, right: 4, top: 30, bottom: 4, containLabel: true } : { left: 10, right: 18, top: 48, bottom: 6, containLabel: true },
         xAxis: {
           type: 'category', boundaryGap: false, data: days.map(m => m.slice(2)),
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
@@ -2140,7 +2206,7 @@ const InvestTrendChart = {
                       start-placeholder="开始月" end-placeholder="结束月" @change="render" />
       <RangePills class="mob-range" :start="range[0]" :end="range[1]" @change="onPill" />
     </div>
-    <div ref="el" class="chart-canvas" style="flex:1;min-height:260px;margin-top:8px"></div>
+    <div ref="el" class="chart-canvas" style="flex:1;min-height:230px;margin-top:8px"></div>
   </el-card>`
 };
 
@@ -2181,7 +2247,7 @@ const InvestProfitChart = {
           textStyle: { fontSize: mob ? 11 : 13 },
           valueFormatter: v => (Number(v) >= 0 ? '+' : '') + '¥ ' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })
         },
-        grid: mob ? { left: 8, right: 42, top: 16, bottom: 22 } : { left: 70, right: 24, top: 24, bottom: 32 },
+        grid: mob ? { left: 4, right: 4, top: 16, bottom: 4, containLabel: true } : { left: 10, right: 18, top: 24, bottom: 6, containLabel: true },
         xAxis: {
           type: 'category', boundaryGap: false, data: rows.map(r => (r.date || '').slice(2)),
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
@@ -2226,7 +2292,7 @@ const InvestProfitChart = {
                       start-placeholder="开始月" end-placeholder="结束月" @change="render" />
       <RangePills class="mob-range" :start="range[0]" :end="range[1]" @change="onPill" />
     </div>
-    <div ref="el" class="chart-canvas" style="flex:1;min-height:260px;margin-top:8px"></div>
+    <div ref="el" class="chart-canvas" style="flex:1;min-height:230px;margin-top:8px"></div>
   </el-card>`
 };
 
@@ -2399,7 +2465,7 @@ const InvestDailyChart = {
           }
         },
         legend: { data: ['市值', '当日盈亏', '价格'], top: 4, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
-        grid: { left: 70, right: 110, top: 40, bottom: 28 },
+        grid: { left: 10, right: 10, top: 40, bottom: 4, containLabel: true },
         xAxis: {
           type: 'category', data: dts,
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
@@ -2526,7 +2592,7 @@ const InvestProfitHistoryChart = {
           trigger: 'axis',
           valueFormatter: v => '¥ ' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })
         },
-        grid: { left: 70, right: 24, top: 30, bottom: 28 },
+        grid: { left: 10, right: 14, top: 30, bottom: 4, containLabel: true },
         xAxis: {
           type: 'category', data: dts,
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
@@ -2705,7 +2771,7 @@ const makeAssetTrendChart = (totalOnly) => ({
           : mob
             ? { type: 'scroll', top: 0, right: 4, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10 } }
             : { type: 'scroll', top: 0, right: 8, icon: 'roundRect', itemWidth: 14, itemHeight: 4, textStyle: { fontSize: 12 } },
-        grid: mob ? { left: 8, right: 42, top: totalOnly ? 16 : 30, bottom: 22 } : { left: 70, right: 24, top: 36, bottom: 28 },
+        grid: mob ? { left: 4, right: 4, top: totalOnly ? 16 : 30, bottom: 4, containLabel: true } : { left: 10, right: 18, top: 36, bottom: 6, containLabel: true },
         xAxis: {
           type: 'category', boundaryGap: false, data: days.map(d => d.slice(2)),
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
@@ -2817,7 +2883,6 @@ const MobileFinancePage = {
     const investTotal = ref(0);
     const recent = ref([]);
     const invests = ref([]);
-    const assets = ref([]);
     const dateStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
     const load = async () => {
       const d = await apiGet('/stats/dashboard').catch(() => null);
@@ -2830,8 +2895,6 @@ const MobileFinancePage = {
       }
       const inv = await apiGet('/investment/list').catch(() => []);
       invests.value = (Array.isArray(inv) ? inv : []).filter(i => (Number(i.currentValue) || 0) > 0);
-      const ast = await apiGet('/asset/list').catch(() => []);
-      assets.value = Array.isArray(ast) ? ast : [];
     };
     onMounted(() => { load(); window.addEventListener('pm-data-changed', load); });
     onBeforeUnmount(() => window.removeEventListener('pm-data-changed', load));
@@ -2846,16 +2909,55 @@ const MobileFinancePage = {
     const profitVal = r => (Number(r.currentValue) || 0) - (Number(r.amount) || 0);
     const profitCls = r => profitVal(r) >= 0 ? 'green' : 'red';
     const investProfit = computed(() => invests.value.reduce((s, r) => s + profitVal(r), 0));
+    /* 记一笔收入/支出：直接弹窗填写，不跳详情页 */
+    const cashAssets = ref([]);
+    const loadCashAssets = async () => {
+      const data = await apiGet('/asset/list').catch(() => []);
+      const arr = Array.isArray(data) ? data : (data ? data.list || [] : []);
+      cashAssets.value = arr.filter(a => a.category === '现金' || a.category === '银行卡');
+    };
+    const incomeVisible = ref(false);
+    const expenseVisible = ref(false);
+    const incomeForm = ref({});
+    const expenseForm = ref({});
+    const openIncome = () => { incomeForm.value = { amount: null, category: '工资', recordDate: todayStr(), assetId: null, remark: '' }; incomeVisible.value = true; };
+    const openExpense = () => { expenseForm.value = { amount: null, category: '餐饮', recordDate: todayStr(), assetId: null, remark: '' }; expenseVisible.value = true; };
+    const saveIncome = async () => {
+      const f = incomeForm.value;
+      if (!(Number(f.amount) > 0)) { ElMessage.warning('请填写正确的金额'); return; }
+      if (!f.assetId) { ElMessage.warning('请选择资产'); return; }
+      try {
+        await apiPost('/income', { amount: Number(f.amount), category: f.category, recordDate: f.recordDate, assetId: f.assetId, remark: f.remark || '' });
+        ElMessage.success('已记收入');
+        incomeVisible.value = false;
+        window.dispatchEvent(new Event('pm-data-changed'));
+      } catch (e) { /* 错误信息已由拦截层提示 */ }
+    };
+    const saveExpense = async () => {
+      const f = expenseForm.value;
+      if (!(Number(f.amount) > 0)) { ElMessage.warning('请填写正确的金额'); return; }
+      if (!f.assetId) { ElMessage.warning('请选择资产'); return; }
+      try {
+        await apiPost('/expense', { amount: Number(f.amount), category: f.category, recordDate: f.recordDate, assetId: f.assetId, remark: f.remark || '' });
+        ElMessage.success('已记支出');
+        expenseVisible.value = false;
+        window.dispatchEvent(new Event('pm-data-changed'));
+      } catch (e) { /* 错误信息已由拦截层提示 */ }
+    };
     return { monthIncome, monthExpense, assetTotal, investTotal, investProfit,
-             recent, invests, assets, dateStr, go, shareLine, profitVal, profitCls, fmt, channelName: c => ({ THS: '同花顺' }[c] || c) };
+             recent, invests, dateStr, go, shareLine, profitVal, profitCls, fmt, loadCashAssets,
+             incomeVisible, expenseVisible, incomeForm, expenseForm,
+             openIncome, openExpense, saveIncome, saveExpense, cashAssets,
+             incomeCategories, expenseCategories: expenseCategories.filter(c => c !== '投资'),
+             channelName: c => ({ THS: '同花顺' }[c] || c) };
   },
   template: `<div class="m-wrap">
     <div class="m-hero">
       <div class="m-hero-label">净资产（资产 + 投资）</div>
       <div class="m-hero-value">¥ {{ fmt(assetTotal + investTotal) }}</div>
       <div class="m-hero-sub">
-        <div class="m-hero-item">总资产<b>¥ {{ fmt(assetTotal) }}</b></div>
-        <div class="m-hero-item">投资市值<b>¥ {{ fmt(investTotal) }}</b></div>
+        <div class="m-hero-item" style="cursor:pointer" @click="go('#/assets')">总资产<b>¥ {{ fmt(assetTotal) }} ›</b></div>
+        <div class="m-hero-item" style="cursor:pointer" @click="go('#/investment')">投资市值<b>¥ {{ fmt(investTotal) }} ›</b></div>
       </div>
       <div class="m-hero-date">{{ dateStr }}</div>
     </div>
@@ -2864,14 +2966,15 @@ const MobileFinancePage = {
       <div class="m-sec-head">
         <div class="m-sec-icon" style="background:rgba(245,108,108,.12);color:#f56c6c"><el-icon :size="16"><Wallet /></el-icon></div>
         <span class="m-sec-title">本月收支与最近记录</span>
+        <span class="m-sec-more" @click="go('#/m/month-detail')">详情<el-icon :size="12"><ArrowRight /></el-icon></span>
       </div>
       <div class="m-kv">
         <div class="m-kv-item"><span class="m-k">收入</span><b class="green" style="font-size:18px">+¥ {{ fmt(monthIncome) }}</b></div>
         <div class="m-kv-item"><span class="m-k">支出</span><b class="red" style="font-size:18px">-¥ {{ fmt(monthExpense) }}</b></div>
       </div>
       <div style="display:flex;gap:10px;margin-top:14px;padding-bottom:6px">
-        <el-button style="flex:1" @click="go('#/income')">记一笔收入</el-button>
-        <el-button style="flex:1" type="danger" plain @click="go('#/expense')">记一笔支出</el-button>
+        <el-button style="flex:1" @click="openIncome">记一笔收入</el-button>
+        <el-button style="flex:1" type="danger" plain @click="openExpense">记一笔支出</el-button>
       </div>
       <div class="m-line" v-for="(r, i) in recent" :key="i">
         <span class="m-line-sub" style="width:82px;flex-shrink:0">{{ r.recordDate }}</span>
@@ -2892,7 +2995,7 @@ const MobileFinancePage = {
         <div class="m-kv-item"><span class="m-k">总市值</span><b style="font-size:18px">¥ {{ fmt(investTotal) }}</b></div>
         <div class="m-kv-item"><span class="m-k">累计盈亏</span><b :class="investProfit >= 0 ? 'green' : 'red'" style="font-size:18px">{{ (investProfit >= 0 ? '+' : '') + fmt(investProfit) }}</b></div>
       </div>
-      <div class="m-line" v-for="r in invests" :key="r.id">
+      <div class="m-line" v-for="r in invests" :key="r.id" @click="go('#/investment')">
         <div class="m-line-main">
           <div class="m-line-name">{{ r.name }}<span v-if="r.sourceChannel" class="src-badge">{{ channelName(r.sourceChannel) }}</span><span v-if="r.live" class="live-badge">盘中</span></div>
           <div class="m-line-sub">{{ shareLine(r) }}</div>
@@ -2905,29 +3008,133 @@ const MobileFinancePage = {
       <div v-if="!invests.length" class="m-empty">暂无持仓</div>
     </div>
 
-    <div class="m-sec">
-      <div class="m-sec-head">
-        <div class="m-sec-icon" style="background:rgba(230,162,60,.14);color:#e6a23c"><el-icon :size="16"><Coin /></el-icon></div>
-        <span class="m-sec-title">资产</span>
-        <span class="m-sec-more" @click="go('#/assets')">管理<el-icon :size="12"><ArrowRight /></el-icon></span>
-      </div>
-      <div class="m-line" v-for="a in assets" :key="a.id">
-        <div class="m-line-main">
-          <div class="m-line-name">{{ a.name }}</div>
-          <div class="m-line-sub">{{ a.category }}</div>
-        </div>
-        <div class="m-line-num" style="font-weight:600">¥ {{ fmt(a.value) }}</div>
-      </div>
-      <div v-if="!assets.length" class="m-empty">暂无资产</div>
-    </div>
-
-    <HomeTrendChart />
-    <HomeExpensePie />
-
     <div class="m-sec m-link" @click="go('#/fx')">
       <div class="m-sec-icon" style="background:rgba(52,199,89,.12);color:#34c759"><el-icon :size="16"><Money /></el-icon></div>
       <span class="m-sec-title" style="margin-left:10px">汇率行情</span>
       <span class="m-sec-more">美元 · 日元 · 港元 · 欧元 · 英镑<el-icon :size="12"><ArrowRight /></el-icon></span>
+    </div>
+
+    <el-dialog v-model="incomeVisible" title="记一笔收入" width="92%" style="max-width:420px" @open="loadCashAssets">
+      <el-form label-width="64px">
+        <el-form-item label="金额"><el-input-number v-model="incomeForm.amount" :min="0" :precision="2" style="width:100%" controls-position="right" /></el-form-item>
+        <el-form-item label="分类">
+          <el-select v-model="incomeForm.category" style="width:100%">
+            <el-option v-for="c in incomeCategories" :key="c" :label="c" :value="c" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="日期"><el-date-picker v-model="incomeForm.recordDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item label="资产">
+          <el-select v-model="incomeForm.assetId" placeholder="选择现金/银行卡资产" style="width:100%">
+            <el-option v-for="a in cashAssets" :key="a.id" :label="a.name + '（¥ ' + fmt(a.value) + '）'" :value="a.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注"><el-input v-model="incomeForm.remark" placeholder="选填" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="incomeVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveIncome">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="expenseVisible" title="记一笔支出" width="92%" style="max-width:420px" @open="loadCashAssets">
+      <el-form label-width="64px">
+        <el-form-item label="金额"><el-input-number v-model="expenseForm.amount" :min="0" :precision="2" style="width:100%" controls-position="right" /></el-form-item>
+        <el-form-item label="分类">
+          <el-select v-model="expenseForm.category" style="width:100%">
+            <el-option v-for="c in expenseCategories" :key="c" :label="c" :value="c" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="日期"><el-date-picker v-model="expenseForm.recordDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item label="资产">
+          <el-select v-model="expenseForm.assetId" placeholder="选择现金/银行卡资产" style="width:100%">
+            <el-option v-for="a in cashAssets" :key="a.id" :label="a.name + '（¥ ' + fmt(a.value) + '）'" :value="a.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注"><el-input v-model="expenseForm.remark" placeholder="选填" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="expenseVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveExpense">保存</el-button>
+      </template>
+    </el-dialog>
+  </div>`
+};
+
+/* ---------------- 移动端：本月收支构成（收入/支出分类饼图） ---------------- */
+const MobileMonthPage = {
+  setup() {
+    const incomeEl = ref(null);
+    const expenseEl = ref(null);
+    let incomeChart = null, expenseChart = null;
+    const incomeEmpty = ref(true), expenseEmpty = ref(true);
+    const renderPie = (chart, el, rows) => {
+      if (!chart) return;
+      if (!rows.length) {
+        chart.setOption({
+          title: { text: '本月暂无记录', left: 'center', top: 'center', textStyle: { color: '#c0c4cc', fontSize: 13, fontWeight: 'normal' } },
+          series: []
+        }, true);
+        return;
+      }
+      chart.setOption({
+        textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
+        color: ['#ff9500', '#ff3b30', '#af52de', '#007aff', '#34c759', '#5ac8fa', '#8e8e93', '#ffd60a'],
+        tooltip: { trigger: 'item', textStyle: { fontSize: 11 }, formatter: p => p.name + '<br/>¥ ' + Number(p.value).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) + '（' + p.percent + '%）' },
+        legend: { bottom: 0, icon: 'circle', itemWidth: 8, itemHeight: 8, itemGap: 10, textStyle: { color: '#6e6e73', fontSize: 10 } },
+        series: [{
+          type: 'pie', radius: ['42%', '64%'], center: ['50%', '42%'],
+          itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 6 },
+          label: { show: false },
+          emphasis: { scaleSize: 6, label: { show: true, formatter: '{d}%', color: '#1d1d1f', fontSize: 13, fontWeight: 'bold' } },
+          data: rows
+        }]
+      }, true);
+    };
+    const render = async () => {
+      const [inc, exp] = await Promise.all([
+        apiGet('/income/list', { pageNum: 1, pageSize: 1000, month: monthPrefix }).catch(() => []),
+        apiGet('/stats/expense-category', { month: monthPrefix }).catch(() => [])
+      ]);
+      const arr = Array.isArray(inc) ? inc : (inc ? inc.list || [] : []);
+      const g = {};
+      arr.forEach(x => { g[x.category] = (g[x.category] || 0) + (Number(x.amount) || 0); });
+      const incomeRows = Object.keys(g).map(k => ({ name: k, value: Math.round(g[k] * 100) / 100 })).filter(d => d.value > 0);
+      const expenseRows = Array.isArray(exp) ? exp.map(d => ({ name: d.category, value: d.amount })) : [];
+      incomeEmpty.value = !incomeRows.length;
+      expenseEmpty.value = !expenseRows.length;
+      renderPie(incomeChart, incomeEl.value, incomeRows);
+      renderPie(expenseChart, expenseEl.value, expenseRows);
+    };
+    const resizeAll = () => { incomeChart && incomeChart.resize(); expenseChart && expenseChart.resize(); };
+    onMounted(() => {
+      incomeChart = echarts.init(incomeEl.value);
+      expenseChart = echarts.init(expenseEl.value);
+      render();
+      window.addEventListener('resize', resizeAll);
+      window.addEventListener('pm-data-changed', render);
+    });
+    onBeforeUnmount(() => {
+      window.removeEventListener('resize', resizeAll);
+      window.removeEventListener('pm-data-changed', render);
+      incomeChart && incomeChart.dispose();
+      expenseChart && expenseChart.dispose();
+    });
+    return { incomeEl, expenseEl, incomeEmpty, expenseEmpty };
+  },
+  template: `<div class="m-wrap">
+    <div class="m-sec">
+      <div class="m-sec-head">
+        <div class="m-sec-icon" style="background:rgba(255,59,48,.12);color:#ff3b30"><el-icon :size="16"><Wallet /></el-icon></div>
+        <span class="m-sec-title">本月收入构成</span>
+      </div>
+      <div ref="incomeEl" style="height:260px"></div>
+    </div>
+    <div class="m-sec">
+      <div class="m-sec-head">
+        <div class="m-sec-icon" style="background:rgba(52,199,89,.12);color:#34c759"><el-icon :size="16"><Wallet /></el-icon></div>
+        <span class="m-sec-title">本月支出构成</span>
+      </div>
+      <div ref="expenseEl" style="height:260px"></div>
     </div>
   </div>`
 };
@@ -2936,6 +3143,7 @@ const MobileFinancePage = {
 const routes = {
   '/dashboard':  { comp: DashboardPage, title: '主页' },
   '/m/finance':  { comp: MobileFinancePage, title: '财务' },
+  '/m/month-detail': { comp: MobileMonthPage, title: '本月收支构成' },
   '/m/health':   { comp: WeightPage,  title: '身体' },
   '/income':     { comp: IncomePage,    title: '收入' },
   '/expense':    { comp: ExpensePage,   title: '支出' },
