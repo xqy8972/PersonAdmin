@@ -236,7 +236,7 @@
   /* 滚轮中间高亮带（居中行 = 上下各 2 行，72px 起 36 高） */
   .wr-wheels::before { content: ''; position: absolute; left: 0; right: 0; top: 72px; height: 36px; background: rgba(47, 111, 206, .08); border-radius: 8px; }
   .wr-wheels::after { content: ''; position: absolute; left: 0; right: 0; top: 0; bottom: 0; pointer-events: none; background: linear-gradient(180deg, #fff 0%, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0) 70%, #fff 100%); }
-  .wr-wheel { flex: 1; height: 180px; overflow-y: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; position: relative; z-index: 1; }
+  .wr-wheel { flex: 1; height: 180px; overflow-y: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; position: relative; z-index: 1; overscroll-behavior: contain; touch-action: pan-y; }
   .wr-wheel::-webkit-scrollbar { display: none; }
   .wr-item { height: 36px; line-height: 36px; text-align: center; font-size: 16px; color: #1d1d1f; user-select: none; }
 
@@ -301,13 +301,11 @@
     .desk-tbl { display: none; }
     .mob-assets { display: block; }
     .chart-canvas { min-height: 200px !important; }
-    /* 投资展开图：头部一行不换行、时间范围按钮单行可横滑、图表区占主体 */
-    .idch-head { flex-wrap: nowrap !important; padding: 0 2px; }
-    .idch-head > b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; min-width: 0; }
-    .idch-head > div { flex-shrink: 0; }
-    /* 移动端：桌面单选组与累计盈亏收起，区间改为占满一行的胶囊（可横滑），信息精简、图表为主 */
-    .idch-head .el-radio-group { display: none; }
-    .idch-head .idch-cum { display: none; }
+    /* 投资展开图：标题独占一行（卡片左上），区间胶囊在标题下面一行（与总市值趋势卡片一致） */
+    .idch-head { display: block !important; padding: 0 2px; }
+    .idch-head > b { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* 移动端：桌面单选组与累计盈亏整组收起，区间用胶囊行 */
+    .idch-head > div { display: none; }
     .idch-pills { display: flex !important; gap: 6px; margin: 6px 0 2px; overflow-x: auto; scrollbar-width: none; }
     .idch-pills::-webkit-scrollbar { display: none; }
     /* 展开区去卡片化：白框套白框很丑，图表直接铺满 */
@@ -2185,25 +2183,33 @@ const MobileWheelRange = {
       if (k === 'em') return { list: months12, get: () => sel.em, set: v => sel.em = v };
       return { list: Array.from({ length: eDays.value }, (_, i) => i + 1), get: () => sel.ed, set: v => sel.ed = v };
     };
-    // 滚动停止后吸附到最近一行并回写选中值（注意：模板里必须 @scroll="onWheel('k', $event)" 传入事件，
-    // 写成 onWheel('k') 时 Vue 会把返回的闭包丢弃，滚动永远不回写——自定义日期不生效的根因）
+    // 吸附核心：滚轮当前位置 → 最近一行 → 回写选中值（标题联动靠这里）
+    const snap = (k, el) => {
+      const conf = confOf(k);
+      let idx = Math.round(el.scrollTop / H);
+      idx = Math.max(0, Math.min(idx, conf.list.length - 1));
+      if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
+      if (conf.get() !== conf.list[idx]) conf.set(conf.list[idx]);
+    };
+    // 滚动过程中防抖吸附（注意：模板里必须 @scroll="onWheel('k', $event)" 传入事件，
+    // 写成 onWheel('k') 时 Vue 会把返回的闭包丢弃，滚动永远不回写）
     const onWheel = (k, ev) => {
       const el = ev.target;
       clearTimeout(el._wt);
-      el._wt = setTimeout(() => {
-        const conf = confOf(k);
-        let idx = Math.round(el.scrollTop / H);
-        idx = Math.max(0, Math.min(idx, conf.list.length - 1));
-        if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
-        if (conf.get() !== conf.list[idx]) conf.set(conf.list[idx]);
-      }, 90);
+      el._wt = setTimeout(() => snap(k, el), 90);
+    };
+    // 手指抬起后再延迟对齐一次：兜住惯性滚动的尾巴，移动端滚一次后不同步/卡住靠它兜底
+    const onLift = (k, ev) => {
+      const el = ev.target;
+      clearTimeout(el._wt2);
+      el._wt2 = setTimeout(() => snap(k, el), 280);
     };
     // 点击某行直接选中（滚动外的另一种选择方式；同时清掉滚动防抖，避免覆盖点击结果）
     const tap = (k, i) => {
       const conf = confOf(k);
       if (i < 0 || i >= conf.list.length) return;
       const el = root.value && root.value.querySelector('[data-wheel="' + k + '"]');
-      if (el) { clearTimeout(el._wt); el.scrollTop = i * H; }
+      if (el) { clearTimeout(el._wt); clearTimeout(el._wt2); el.scrollTop = i * H; }
       conf.set(conf.list[i]);
     };
     onMounted(() => {
@@ -2214,9 +2220,16 @@ const MobileWheelRange = {
     const sText = computed(() => fmtDateCN(sel.sy, sel.sm, sel.sd));
     const eText = computed(() => fmtDateCN(sel.ey, sel.em, sel.ed));
     const pad = n => String(n).padStart(2, '0');
-    const ok = () => emit('confirm', sel.sy + '-' + pad(sel.sm) + '-' + pad(sel.sd), sel.ey + '-' + pad(sel.em) + '-' + pad(sel.ed));
+    // 确定前先把六个滚轮的最终位置同步回选中值：滚动/点选未吸附完也按所见日期生效
+    const ok = () => {
+      ['sy', 'sm', 'sd', 'ey', 'em', 'ed'].forEach(k => {
+        const el = root.value && root.value.querySelector('[data-wheel="' + k + '"]');
+        if (el) snap(k, el);
+      });
+      emit('confirm', sel.sy + '-' + pad(sel.sm) + '-' + pad(sel.sd), sel.ey + '-' + pad(sel.em) + '-' + pad(sel.ed));
+    };
     const cancel = () => emit('cancel');
-    return { root, years, months12, sDays, eDays, onWheel, tap, sText, eText, ok, cancel };
+    return { root, years, months12, sDays, eDays, onWheel, onLift, tap, sText, eText, ok, cancel };
   },
   template: `<div class="wr-mask" ref="root" @click="cancel">
     <div class="wr-sheet" @click.stop>
@@ -2225,17 +2238,17 @@ const MobileWheelRange = {
       <div class="wr-group">
         <span class="wr-label">开始</span>
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="sy" @scroll="onWheel('sy', $event)"><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('sy', i)">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="sm" @scroll="onWheel('sm', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('sm', i)">{{ m }}月</div></div>
-          <div class="wr-wheel" data-wheel="sd" @scroll="onWheel('sd', $event)"><div class="wr-item" v-for="(d, i) in sDays" :key="d" @click="tap('sd', i)">{{ d }}日</div></div>
+          <div class="wr-wheel" data-wheel="sy" @scroll="onWheel('sy', $event)" @touchend.passive="onLift('sy', $event)"><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('sy', i)">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="sm" @scroll="onWheel('sm', $event)" @touchend.passive="onLift('sm', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('sm', i)">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="sd" @scroll="onWheel('sd', $event)" @touchend.passive="onLift('sd', $event)"><div class="wr-item" v-for="(d, i) in sDays" :key="d" @click="tap('sd', i)">{{ d }}日</div></div>
         </div>
       </div>
       <div class="wr-group">
         <span class="wr-label">结束</span>
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="ey" @scroll="onWheel('ey', $event)"><div class="wr-item" v-for="(y, i) in years" :key="'e' + y" @click="tap('ey', i)">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="em" @scroll="onWheel('em', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="'e' + m" @click="tap('em', i)">{{ m }}月</div></div>
-          <div class="wr-wheel" data-wheel="ed" @scroll="onWheel('ed', $event)"><div class="wr-item" v-for="(d, i) in eDays" :key="'e' + d" @click="tap('ed', i)">{{ d }}日</div></div>
+          <div class="wr-wheel" data-wheel="ey" @scroll="onWheel('ey', $event)" @touchend.passive="onLift('ey', $event)"><div class="wr-item" v-for="(y, i) in years" :key="'e' + y" @click="tap('ey', i)">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="em" @scroll="onWheel('em', $event)" @touchend.passive="onLift('em', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="'e' + m" @click="tap('em', i)">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="ed" @scroll="onWheel('ed', $event)" @touchend.passive="onLift('ed', $event)"><div class="wr-item" v-for="(d, i) in eDays" :key="'e' + d" @click="tap('ed', i)">{{ d }}日</div></div>
         </div>
       </div>
     </div>
@@ -2247,6 +2260,8 @@ const RangePills = {
   setup(props, { emit }) {
     const active = ref('1y');
     const customVisible = ref(false);
+    // 记住上次自定义结果：再次打开滑轮时回显上次选的日期（而非外部月粒度默认值），保证展示一致
+    const lastCustom = ref(null);
     const pad = n => String(n).padStart(2, '0');
     const fmtD = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     const pick = p => {
@@ -2257,12 +2272,19 @@ const RangePills = {
       const start = new Date(end.getFullYear(), end.getMonth() - p.months + 1, 1);
       emit('change', { start: fmtD(start), end: fmtD(end), preset: p.key });
     };
-    const onCustom = (s, e) => { customVisible.value = false; active.value = 'custom'; emit('change', { start: s, end: e, preset: 'custom' }); };
-    return { RANGE_PRESETS, active, customVisible, pick, onCustom, start: props.start, end: props.end };
+    const onCustom = (s, e) => {
+      customVisible.value = false;
+      active.value = 'custom';
+      lastCustom.value = { start: s, end: e };
+      emit('change', { start: s, end: e, preset: 'custom' });
+    };
+    const wheelStart = () => (lastCustom.value ? lastCustom.value.start : props.start);
+    const wheelEnd = () => (lastCustom.value ? lastCustom.value.end : props.end);
+    return { RANGE_PRESETS, active, customVisible, pick, onCustom, wheelStart, wheelEnd };
   },
   template: `<div class="rp-pills">
       <span v-for="p in RANGE_PRESETS" :key="p.key" class="rp-pill" :class="{ on: active === p.key }" @click="pick(p)">{{ p.label }}</span>
-      <MobileWheelRange v-if="customVisible" :start="start" :end="end" @confirm="onCustom" @cancel="customVisible = false" />
+      <MobileWheelRange v-if="customVisible" :start="wheelStart()" :end="wheelEnd()" @confirm="onCustom" @cancel="customVisible = false" />
     </div>`
 };
 
@@ -2666,6 +2688,10 @@ const InvestDailyChart = {
         name: inv.name,
         profit: Math.round((num(inv.currentValue) - num(inv.amount)) * 100) / 100
       };
+      // 移动端参考同花顺日K：只留左侧市值轴刻度，右侧盈亏/价格轴保留走势但隐藏刻度（游标太占地方）；
+      // x 轴只留约 4 个标签，放不下就少展示，避免重叠
+      const mob = window.innerWidth <= 768;
+      const xStep = Math.max(1, Math.ceil(dts.length / 4));
       chart.setOption({
         textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
         tooltip: {
@@ -2692,20 +2718,21 @@ const InvestDailyChart = {
             return html;
           }
         },
-        legend: window.innerWidth <= 768
+        legend: mob
           ? { data: ['市值', '当日盈亏', '价格', '买入点', '卖出点'], top: 2, right: 2, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10, color: '#6e6e73' } }
           : { data: ['市值', '当日盈亏', '价格', '买入点', '卖出点'], top: 4, right: 16, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
-        grid: { left: 10, right: 10, top: window.innerWidth <= 768 ? 28 : 40, bottom: 4, containLabel: true },
+        grid: { left: 10, right: mob ? 8 : 10, top: mob ? 28 : 40, bottom: 4, containLabel: true },
         xAxis: {
           type: 'category', data: dts,
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
           axisTick: { show: false },
-          // 点数多时间范围大时标签不要太细：>120 点只保留约 12 个「年月」标签并倾斜
+          // 点数多时间范围大时标签不要太细；移动端最多约 4 个（含末尾），放不下就少展示
           axisLabel: {
             color: '#86868b',
-            interval: dts.length > 120 ? (i => i % Math.ceil(dts.length / 12) === 0) : 'auto',
+            interval: mob ? (i => i % xStep === 0 || i === dts.length - 1)
+                          : (dts.length > 120 ? (i => i % Math.ceil(dts.length / 12) === 0) : 'auto'),
             rotate: 0,
-            formatter: v => dts.length > 120 ? v.slice(0, 7) : v.slice(5)
+            formatter: mob ? (v => v.slice(5)) : (v => dts.length > 120 ? v.slice(0, 7) : v.slice(5))
           }
         },
         yAxis: [
@@ -2714,11 +2741,12 @@ const InvestDailyChart = {
             splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
             axisLabel: { color: '#86868b', formatter: v => v >= 10000 ? (v / 10000) + '万' : v }
           },
-          { type: 'value', scale: true, position: 'right', splitLine: { show: false }, axisLabel: { color: '#86868b' } },
+          { type: 'value', scale: true, position: 'right', splitLine: { show: false },
+            axisLabel: mob ? { show: false } : { color: '#86868b' } },
           {
             // 价格轴：股价/净值（原始币种），买入前无持仓市值为 0 但价格走势仍完整可见
-            type: 'value', scale: true, position: 'right', offset: 48,
-            splitLine: { show: false }, axisLabel: { color: '#8e8e93' }
+            type: 'value', scale: true, position: 'right', offset: mob ? 0 : 48,
+            splitLine: { show: false }, axisLabel: mob ? { show: false } : { color: '#8e8e93' }
           }
         ],
         series: [
@@ -2810,6 +2838,7 @@ const InvestProfitHistoryChart = {
     const render = async () => {
       if (!chart) return;
       chart.resize();
+      const mob = window.innerWidth <= 768;
       let start = '2000-01-01';
       if (range.value === '1m') start = dateMinusDays(30);
       else if (range.value === '3m') start = dateMinusDays(90);
@@ -2836,12 +2865,13 @@ const InvestProfitHistoryChart = {
           type: 'category', data: dts,
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
           axisTick: { show: false },
-          // 点数多时间范围大时标签不要太细：>120 点只保留约 12 个「年月」标签并倾斜
+          // 点数多时间范围大时标签不要太细；移动端最多约 4 个（含末尾），避免重叠看不清
           axisLabel: {
             color: '#86868b',
-            interval: dts.length > 120 ? (i => i % Math.ceil(dts.length / 12) === 0) : 'auto',
+            interval: mob ? (i => i % Math.max(1, Math.ceil(dts.length / 4)) === 0 || i === dts.length - 1)
+                          : (dts.length > 120 ? (i => i % Math.ceil(dts.length / 12) === 0) : 'auto'),
             rotate: 0,
-            formatter: v => dts.length > 120 ? v.slice(0, 7) : v.slice(5)
+            formatter: mob ? (v => v.slice(5)) : (v => dts.length > 120 ? v.slice(0, 7) : v.slice(5))
           }
         },
         yAxis: {
@@ -3305,23 +3335,30 @@ const MonthWheel = {
     const p = (props.modelValue || monthPrefix).split('-').map(Number);
     const sel = reactive({ y: p[0], m: p[1] || 1 });
     const root = ref(null);
+    const listOf = k => k === 'y' ? years : months12;
+    const snap = (k, el) => {
+      const list = listOf(k);
+      let idx = Math.round(el.scrollTop / H);
+      idx = Math.max(0, Math.min(idx, list.length - 1));
+      if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
+      if (sel[k] !== list[idx]) sel[k] = list[idx];
+    };
     const onWheel = (k, ev) => {
       const el = ev.target;
       clearTimeout(el._wt);
-      el._wt = setTimeout(() => {
-        const list = k === 'y' ? years : months12;
-        let idx = Math.round(el.scrollTop / H);
-        idx = Math.max(0, Math.min(idx, list.length - 1));
-        if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
-        const v = list[idx];
-        if (sel[k] !== v) sel[k] = v;
-      }, 90);
+      el._wt = setTimeout(() => snap(k, el), 90);
+    };
+    // 手指抬起后延迟再对齐一次，兜住惯性滚动尾巴
+    const onLift = (k, ev) => {
+      const el = ev.target;
+      clearTimeout(el._wt2);
+      el._wt2 = setTimeout(() => snap(k, el), 280);
     };
     const tap = (k, i) => {
-      const list = k === 'y' ? years : months12;
+      const list = listOf(k);
       if (i < 0 || i >= list.length) return;
       const el = root.value && root.value.querySelector('[data-wheel="' + k + '"]');
-      if (el) { clearTimeout(el._wt); el.scrollTop = i * H; }
+      if (el) { clearTimeout(el._wt); clearTimeout(el._wt2); el.scrollTop = i * H; }
       sel[k] = list[i];
     };
     onMounted(() => {
@@ -3330,9 +3367,16 @@ const MonthWheel = {
     });
     const text = computed(() => sel.y + '年' + sel.m + '月');
     const pad = n => String(n).padStart(2, '0');
-    const ok = () => emit('confirm', sel.y + '-' + pad(sel.m));
+    // 确定前把滚轮最终位置同步回选中值，保证所见即所得
+    const ok = () => {
+      ['y', 'm'].forEach(k => {
+        const el = root.value && root.value.querySelector('[data-wheel="' + k + '"]');
+        if (el) snap(k, el);
+      });
+      emit('confirm', sel.y + '-' + pad(sel.m));
+    };
     const cancel = () => emit('cancel');
-    return { root, years, months12, onWheel, tap, text, ok, cancel };
+    return { root, years, months12, onWheel, onLift, tap, text, ok, cancel };
   },
   template: `<div class="wr-mask" ref="root" @click="cancel">
     <div class="wr-sheet" @click.stop>
@@ -3341,8 +3385,8 @@ const MonthWheel = {
       <div class="wr-group">
         <span class="wr-label">月份</span>
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y', $event)"><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('y', i)">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('m', i)">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y', $event)" @touchend.passive="onLift('y', $event)"><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('y', i)">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m', $event)" @touchend.passive="onLift('m', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('m', i)">{{ m }}月</div></div>
         </div>
       </div>
     </div>
@@ -3369,22 +3413,29 @@ const DayWheel = {
       if (k === 'm') return { list: months12, get: () => sel.m, set: v => sel.m = v };
       return { list: Array.from({ length: days.value }, (_, i) => i + 1), get: () => sel.d, set: v => sel.d = v };
     };
+    const snap = (k, el) => {
+      const conf = confOf(k);
+      let idx = Math.round(el.scrollTop / H);
+      idx = Math.max(0, Math.min(idx, conf.list.length - 1));
+      if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
+      if (conf.get() !== conf.list[idx]) conf.set(conf.list[idx]);
+    };
     const onWheel = (k, ev) => {
       const el = ev.target;
       clearTimeout(el._wt);
-      el._wt = setTimeout(() => {
-        const conf = confOf(k);
-        let idx = Math.round(el.scrollTop / H);
-        idx = Math.max(0, Math.min(idx, conf.list.length - 1));
-        if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
-        if (conf.get() !== conf.list[idx]) conf.set(conf.list[idx]);
-      }, 90);
+      el._wt = setTimeout(() => snap(k, el), 90);
+    };
+    // 手指抬起后延迟再对齐一次，兜住惯性滚动尾巴
+    const onLift = (k, ev) => {
+      const el = ev.target;
+      clearTimeout(el._wt2);
+      el._wt2 = setTimeout(() => snap(k, el), 280);
     };
     const tap = (k, i) => {
       const conf = confOf(k);
       if (i < 0 || i >= conf.list.length) return;
       const el = root.value && root.value.querySelector('[data-wheel="' + k + '"]');
-      if (el) { clearTimeout(el._wt); el.scrollTop = i * H; }
+      if (el) { clearTimeout(el._wt); clearTimeout(el._wt2); el.scrollTop = i * H; }
       conf.set(conf.list[i]);
     };
     onMounted(() => {
@@ -3393,9 +3444,16 @@ const DayWheel = {
     });
     const text = computed(() => sel.y + '年' + sel.m + '月' + sel.d + '日');
     const pad = n => String(n).padStart(2, '0');
-    const ok = () => emit('confirm', sel.y + '-' + pad(sel.m) + '-' + pad(sel.d));
+    // 确定前把滚轮最终位置同步回选中值，保证所见即所得
+    const ok = () => {
+      ['y', 'm', 'd'].forEach(k => {
+        const el = root.value && root.value.querySelector('[data-wheel="' + k + '"]');
+        if (el) snap(k, el);
+      });
+      emit('confirm', sel.y + '-' + pad(sel.m) + '-' + pad(sel.d));
+    };
     const cancel = () => emit('cancel');
-    return { root, years, months12, days, onWheel, tap, text, ok, cancel };
+    return { root, years, months12, days, onWheel, onLift, tap, text, ok, cancel };
   },
   template: `<div class="wr-mask" ref="root" @click="cancel">
     <div class="wr-sheet" @click.stop>
@@ -3403,9 +3461,9 @@ const DayWheel = {
       <div class="wr-title">{{ text }}</div>
       <div class="wr-group">
         <div class="wr-wheels">
-          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y', $event)"><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('y', i)">{{ y }}年</div></div>
-          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('m', i)">{{ m }}月</div></div>
-          <div class="wr-wheel" data-wheel="d" @scroll="onWheel('d', $event)"><div class="wr-item" v-for="(d, i) in days" :key="d" @click="tap('d', i)">{{ d }}日</div></div>
+          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y', $event)" @touchend.passive="onLift('y', $event)"><div class="wr-item" v-for="(y, i) in years" :key="y" @click="tap('y', i)">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m', $event)" @touchend.passive="onLift('m', $event)"><div class="wr-item" v-for="(m, i) in months12" :key="m" @click="tap('m', i)">{{ m }}月</div></div>
+          <div class="wr-wheel" data-wheel="d" @scroll="onWheel('d', $event)" @touchend.passive="onLift('d', $event)"><div class="wr-item" v-for="(d, i) in days" :key="d" @click="tap('d', i)">{{ d }}日</div></div>
         </div>
       </div>
     </div>
