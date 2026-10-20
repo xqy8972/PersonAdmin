@@ -211,7 +211,7 @@
   .inv-cards { display: none; }
 
   /* ===== 移动端区间胶囊 + 滑轮日期弹层 ===== */
-  .rp-pills { display: none; flex-wrap: wrap; gap: 8px; }
+  .rp-pills { display: none; flex-wrap: nowrap; gap: 8px; }
   .rp-pill { padding: 5px 14px; border-radius: 999px; background: #f2f3f5; color: #6e6e73; font-size: 13px; cursor: pointer; user-select: none; }
   .rp-pill.on { background: #2f6fce; color: #fff; font-weight: 600; }
   .wr-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, .45); z-index: 300; display: flex; align-items: flex-end; justify-content: center; }
@@ -280,7 +280,14 @@
     /* 图表：移动端图大标尺小；区间改胶囊，桌面月选择器隐藏 */
     .rp-pills { display: flex; }
     .desk-range { display: none; }
-    .chart-canvas { min-height: 240px !important; }
+    .chart-canvas { min-height: 200px !important; }
+    /* 投资页：移动端隐藏渠道同步按钮 */
+    .desk-only { display: none !important; }
+    /* 收支详情页：收入/支出切换页签 */
+    .m-month-tabs { display: flex; gap: 4px; background: #f2f3f5; border-radius: 999px; padding: 3px; }
+    .m-month-tab { padding: 4px 16px; border-radius: 999px; font-size: 13px; color: #6e6e73; cursor: pointer; user-select: none; }
+    .m-month-tab.on { background: #fff; color: #2f6fce; font-weight: 600; box-shadow: 0 1px 4px rgba(0, 0, 0, .08); }
+    .m-month-total { display: flex; justify-content: flex-end; align-items: baseline; gap: 6px; padding: 10px 0 0; font-size: 13px; color: #86868b; border-top: 1px solid #f4f5f7; margin-top: 6px; }
     /* 投资页顶部图表卡（含饼图）在移动端堆叠时有明确高度，避免 flex:1 塌陷成 0 */
     .mob-row > .chart-card { min-height: 320px; }
   }
@@ -706,19 +713,14 @@ const InvestmentPageRaw = makeCrudPage({
     return true;
   },
   empty: () => ({ name: '', type: '基金', code: '', amount: null, currentValue: null, shares: null, price: null, feeFixed: null, assetId: null, buyDate: todayStr(), remark: '' }),
-  template: `<div style="display:flex;gap:16px;margin-bottom:16px;align-items:stretch" class="mob-row">
-    <InvestPieCard />
-    <div style="flex:1;min-width:0"><InvestTrendChart /></div>
-    <div style="flex:1;min-width:0"><InvestProfitChart /></div>
-  </div>
-  <el-card>
+  template: `<el-card>
     <div class="toolbar">
       <span style="line-height:32px;color:#606266">总市值：</span>
       <span style="line-height:32px;font-weight:bold;color:#409eff;font-size:18px">¥ {{ fmt(total) }}</span>
       <div style="flex:1"></div>
-      <el-button type="primary" @click="openDialog()">新增投资</el-button>
-      <el-button plain @click="openChannels">渠道同步</el-button>
-      <el-button plain @click="refreshQuotes">刷新行情</el-button>
+      <el-button type="primary" size="small" @click="openDialog()">新增投资</el-button>
+      <el-button plain size="small" @click="refreshQuotes">刷新行情</el-button>
+      <el-button plain size="small" class="desk-only" @click="openChannels">渠道同步</el-button>
     </div>
     <el-table v-if="!mob" :data="list" stripe row-key="id" ref="tableRef" @row-click="toggleExpand" style="cursor:pointer">
       <el-table-column type="expand">
@@ -1033,7 +1035,12 @@ const InvestmentPageRaw = makeCrudPage({
         <el-button type="primary" @click="addChannel">添加渠道</el-button>
       </template>
     </el-dialog>
-  </el-card>`
+  </el-card>
+  <div style="display:flex;gap:16px;margin-top:16px;align-items:stretch" class="mob-row">
+    <div style="flex:1;min-width:0"><InvestTrendChart /></div>
+    <div style="flex:1;min-width:0"><InvestProfitChart /></div>
+    <InvestPieCard />
+  </div>`
 });
 
 /* ---------------- 卖出逻辑：包一层在 CRUD 工厂之上 ---------------- */
@@ -1608,7 +1615,7 @@ const WeightPage = {
   template: `<div>
     <WeightTrendChart>
       <template #status>
-        <el-tag v-if="latest" size="large" effect="plain">最新体重：<b style="font-size:16px">{{ latest.weight }}</b> kg（{{ latest.date }}）</el-tag>
+        <el-tag v-if="latest" size="large" effect="plain">最新体重：<b style="font-size:16px">{{ latest.weight }}</b> kg（{{ latest.recordDate }}）</el-tag>
         <el-tag v-else size="large" type="info">暂无体重记录</el-tag>
       </template>
       <template #actions>
@@ -1663,6 +1670,111 @@ const WeightPage = {
       <template #footer>
         <el-button @click="wDialog = false">取消</el-button>
         <el-button type="primary" @click="wSave">保存</el-button>
+      </template>
+    </el-dialog>
+  </div>`
+};
+
+/* ---------------- 移动端：健康（体重 hero + 体重走势 + 饮食记录 + 热量图） ---------------- */
+const MobileHealthPage = {
+  setup() {
+    const wList = ref([]); const wDialog = ref(false); const wForm = ref({});
+    const dList = ref([]); const dDialog = ref(false); const dForm = ref({});
+    const filterDate = ref(today);
+    const loadW = async () => { wList.value = (await apiGet('/weight/list').catch(() => [])) || []; };
+    const loadD = async () => { dList.value = (await apiGet('/diet/list', { date: filterDate.value }).catch(() => [])) || []; };
+    const wOpen = row => { wForm.value = row ? Object.assign({}, row) : { id: null, recordDate: todayStr(), weight: null, note: '' }; wDialog.value = true; };
+    const wSave = async () => {
+      if (!(Number(wForm.value.weight) > 0)) { ElMessage.warning('请填写正确的体重'); return; }
+      try {
+        if (wForm.value.id) await apiPut('/weight/' + wForm.value.id, wForm.value);
+        else await apiPost('/weight', wForm.value);
+        ElMessage.success('保存成功'); wDialog.value = false;
+        loadW(); window.dispatchEvent(new Event('pm-data-changed'));
+      } catch (e) {}
+    };
+    const dOpen = row => { dForm.value = row ? Object.assign({}, row) : { id: null, recordDate: filterDate.value, mealType: '午餐', food: '', calories: null }; dDialog.value = true; };
+    const dSave = async () => {
+      if (!dForm.value.food) { ElMessage.warning('请填写食物内容'); return; }
+      if (!(Number(dForm.value.calories) >= 0)) { ElMessage.warning('请填写热量'); return; }
+      try {
+        if (dForm.value.id) await apiPut('/diet/' + dForm.value.id, dForm.value);
+        else await apiPost('/diet', dForm.value);
+        ElMessage.success('保存成功'); dDialog.value = false;
+        loadD(); window.dispatchEvent(new Event('pm-data-changed'));
+      } catch (e) {}
+    };
+    const dDel = async id => {
+      try { await ElMessageBox.confirm('确定删除该记录吗？', '提示', { type: 'warning' }); } catch (e) { return; }
+      try { await apiDel('/diet/' + id); ElMessage.success('删除成功'); loadD(); window.dispatchEvent(new Event('pm-data-changed')); } catch (e) {}
+    };
+    const latest = computed(() => wList.value.length ? wList.value.reduce((a, b) => (a.recordDate > b.recordDate) ? a : b) : null);
+    watch(filterDate, loadD);
+    onMounted(() => { loadW(); loadD(); });
+    return { wList, wDialog, wForm, wOpen, wSave,
+             dList, dDialog, dForm, dOpen, dSave, dDel,
+             filterDate, latest, mealTagType, fmt };
+  },
+  template: `<div class="m-wrap">
+    <div class="m-hero" style="background:linear-gradient(135deg,#30b0c7 0%,#1f8fb5 55%,#1a7ba0 100%);box-shadow:0 10px 26px rgba(31,143,181,.35)">
+      <div class="m-hero-label">最新体重</div>
+      <div class="m-hero-value">{{ latest ? latest.weight + ' kg' : '—' }}</div>
+      <div class="m-hero-sub">
+        <div class="m-hero-item">记录日期<b>{{ latest ? latest.recordDate : '暂无记录' }}</b></div>
+        <div class="m-hero-item">历史记录<b>{{ wList.length }} 条</b></div>
+      </div>
+    </div>
+    <WeightTrendChart>
+      <template #actions><el-button type="primary" size="small" @click="wOpen()">记录体重</el-button></template>
+    </WeightTrendChart>
+    <div class="m-sec">
+      <div class="m-sec-head">
+        <div class="m-sec-icon" style="background:rgba(52,199,89,.12);color:#34c759"><el-icon :size="16"><Food /></el-icon></div>
+        <span class="m-sec-title">饮食记录</span>
+        <span class="m-sec-more" style="gap:8px"><el-date-picker v-model="filterDate" type="date" value-format="YYYY-MM-DD" :clearable="false" size="small" style="width:126px" /></span>
+      </div>
+      <div class="m-line" v-for="r in dList" :key="r.id">
+        <el-tag :type="mealTagType(r.mealType)" size="small" effect="plain" style="flex-shrink:0">{{ r.mealType }}</el-tag>
+        <div class="m-line-main">
+          <div class="m-line-name">{{ r.food }}</div>
+          <div class="m-line-sub">{{ r.calories }} 千卡</div>
+        </div>
+        <div style="display:flex;gap:2px;flex-shrink:0">
+          <el-button size="small" text type="primary" @click="dOpen(r)">编辑</el-button>
+          <el-button size="small" text type="danger" @click="dDel(r.id)">删除</el-button>
+        </div>
+      </div>
+      <div v-if="!dList.length" class="m-empty">当日暂无饮食记录</div>
+      <div style="padding:10px 0 8px"><el-button style="width:100%" type="primary" plain @click="dOpen()">记一笔饮食</el-button></div>
+    </div>
+    <div class="m-sec" style="padding-bottom:14px">
+      <DietCalorieChart />
+    </div>
+    <el-dialog v-model="wDialog" :title="(wForm.id ? '编辑' : '记录') + '体重'" width="92%" style="max-width:420px">
+      <el-form label-width="64px">
+        <el-form-item label="日期"><el-date-picker v-model="wForm.recordDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item label="体重"><el-input-number v-model="wForm.weight" :min="0" :max="500" :precision="1" :step="0.5" style="width:100%" controls-position="right" /><span style="margin-left:8px;color:#86868b">kg</span></el-form-item>
+        <el-form-item label="备注"><el-input v-model="wForm.note" placeholder="选填" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="wDialog = false">取消</el-button>
+        <el-button type="primary" @click="wSave">保存</el-button>
+      </template>
+    </el-dialog>
+    <el-dialog v-model="dDialog" :title="(dForm.id ? '编辑' : '记一笔') + '饮食'" width="92%" style="max-width:420px">
+      <el-form label-width="64px">
+        <el-form-item label="日期"><el-date-picker v-model="dForm.recordDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item label="餐次">
+          <el-select v-model="dForm.mealType" style="width:100%">
+            <el-option v-for="t in ['早餐','午餐','晚餐','加餐']" :key="t" :label="t" :value="t" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="食物"><el-input v-model="dForm.food" placeholder="如：鸡胸肉沙拉" /></el-form-item>
+        <el-form-item label="热量"><el-input-number v-model="dForm.calories" :min="0" :precision="0" style="width:100%" controls-position="right" /><span style="margin-left:8px;color:#86868b">千卡</span></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dDialog = false">取消</el-button>
+        <el-button type="primary" @click="dSave">保存</el-button>
       </template>
     </el-dialog>
   </div>`
@@ -2160,7 +2272,7 @@ const InvestTrendChart = {
         yAxis: {
           type: 'value', position: mob ? 'right' : 'left',
           splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
-          axisLabel: { color: '#86868b', fontSize: mob ? 10 : 12, formatter: v => v >= 10000 ? (v / 10000) + '万' : v }
+          axisLabel: { color: '#86868b', fontSize: mob ? 10 : 12, formatter: v => Math.abs(v) >= 10000 ? Math.round(v / 10000) + '万' : v }
         },
         series: [
           {
@@ -2256,7 +2368,7 @@ const InvestProfitChart = {
         yAxis: {
           type: 'value', position: mob ? 'right' : 'left',
           splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
-          axisLabel: { color: '#86868b', fontSize: mob ? 10 : 12, formatter: v => v >= 10000 || v <= -10000 ? (v / 10000) + '万' : v }
+          axisLabel: { color: '#86868b', fontSize: mob ? 10 : 12, formatter: v => Math.abs(v) >= 10000 ? Math.round(v / 10000) + '万' : v }
         },
         series: [{
           name: '盈亏', type: 'line', smooth: false, symbol: mob ? 'none' : 'circle', symbolSize: 6,
@@ -2874,6 +2986,57 @@ const LoginPage = {
   </div>`
 };
 
+/* ---------------- 移动端通用：记一笔收入/支出弹窗（财务首页与收支详情页共用） ---------------- */
+const MobileMoneyDialog = {
+  props: { type: { type: String, default: 'income' }, visible: Boolean },
+  emits: ['update:visible', 'saved'],
+  setup(props, { emit }) {
+    const form = ref({ amount: null, category: '', recordDate: todayStr(), assetId: null, remark: '' });
+    const cashAssets = ref([]);
+    const loadCashAssets = async () => {
+      const data = await apiGet('/asset/list').catch(() => []);
+      const arr = Array.isArray(data) ? data : (data ? data.list || [] : []);
+      cashAssets.value = arr.filter(a => a.category === '现金' || a.category === '银行卡');
+    };
+    watch(() => props.visible, v => {
+      if (v) { form.value = { amount: null, category: props.type === 'income' ? '工资' : '餐饮', recordDate: todayStr(), assetId: null, remark: '' }; loadCashAssets(); }
+    });
+    const cats = computed(() => props.type === 'income' ? incomeCategories : expenseCategories.filter(c => c !== '投资'));
+    const innerVisible = computed({ get: () => props.visible, set: v => emit('update:visible', v) });
+    const save = async () => {
+      const f = form.value;
+      if (!(Number(f.amount) > 0)) { ElMessage.warning('请填写正确的金额'); return; }
+      if (!f.assetId) { ElMessage.warning('请选择资产'); return; }
+      try {
+        await apiPost('/' + props.type, { amount: Number(f.amount), category: f.category, recordDate: f.recordDate, assetId: f.assetId, remark: f.remark || '' });
+        ElMessage.success(props.type === 'income' ? '已记收入' : '已记支出');
+        emit('update:visible', false);
+        emit('saved');
+      } catch (e) { /* 错误信息已由拦截层提示 */ }
+    };
+    return { form, cashAssets, cats, innerVisible, save, fmt };
+  },
+  template: `<el-dialog v-model="innerVisible" :title="type === 'income' ? '记一笔收入' : '记一笔支出'" width="92%" style="max-width:420px">
+    <el-form label-width="64px">
+      <el-form-item label="金额"><el-input-number v-model="form.amount" :min="0" :precision="2" style="width:100%" controls-position="right" /></el-form-item>
+      <el-form-item label="分类">
+        <el-select v-model="form.category" style="width:100%"><el-option v-for="c in cats" :key="c" :label="c" :value="c" /></el-select>
+      </el-form-item>
+      <el-form-item label="日期"><el-date-picker v-model="form.recordDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+      <el-form-item label="资产">
+        <el-select v-model="form.assetId" placeholder="选择现金/银行卡资产" style="width:100%">
+          <el-option v-for="a in cashAssets" :key="a.id" :label="a.name + '（¥ ' + fmt(a.value) + '）'" :value="a.id" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="备注"><el-input v-model="form.remark" placeholder="选填" /></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="innerVisible = false">取消</el-button>
+      <el-button type="primary" @click="save">保存</el-button>
+    </template>
+  </el-dialog>`
+};
+
 /* ---------------- 移动端：财务总览（财务 Tab 首页，信息一页聚合） ---------------- */
 const MobileFinancePage = {
   setup() {
@@ -2910,45 +3073,14 @@ const MobileFinancePage = {
     const profitCls = r => profitVal(r) >= 0 ? 'green' : 'red';
     const investProfit = computed(() => invests.value.reduce((s, r) => s + profitVal(r), 0));
     /* 记一笔收入/支出：直接弹窗填写，不跳详情页 */
-    const cashAssets = ref([]);
-    const loadCashAssets = async () => {
-      const data = await apiGet('/asset/list').catch(() => []);
-      const arr = Array.isArray(data) ? data : (data ? data.list || [] : []);
-      cashAssets.value = arr.filter(a => a.category === '现金' || a.category === '银行卡');
-    };
     const incomeVisible = ref(false);
     const expenseVisible = ref(false);
-    const incomeForm = ref({});
-    const expenseForm = ref({});
-    const openIncome = () => { incomeForm.value = { amount: null, category: '工资', recordDate: todayStr(), assetId: null, remark: '' }; incomeVisible.value = true; };
-    const openExpense = () => { expenseForm.value = { amount: null, category: '餐饮', recordDate: todayStr(), assetId: null, remark: '' }; expenseVisible.value = true; };
-    const saveIncome = async () => {
-      const f = incomeForm.value;
-      if (!(Number(f.amount) > 0)) { ElMessage.warning('请填写正确的金额'); return; }
-      if (!f.assetId) { ElMessage.warning('请选择资产'); return; }
-      try {
-        await apiPost('/income', { amount: Number(f.amount), category: f.category, recordDate: f.recordDate, assetId: f.assetId, remark: f.remark || '' });
-        ElMessage.success('已记收入');
-        incomeVisible.value = false;
-        window.dispatchEvent(new Event('pm-data-changed'));
-      } catch (e) { /* 错误信息已由拦截层提示 */ }
-    };
-    const saveExpense = async () => {
-      const f = expenseForm.value;
-      if (!(Number(f.amount) > 0)) { ElMessage.warning('请填写正确的金额'); return; }
-      if (!f.assetId) { ElMessage.warning('请选择资产'); return; }
-      try {
-        await apiPost('/expense', { amount: Number(f.amount), category: f.category, recordDate: f.recordDate, assetId: f.assetId, remark: f.remark || '' });
-        ElMessage.success('已记支出');
-        expenseVisible.value = false;
-        window.dispatchEvent(new Event('pm-data-changed'));
-      } catch (e) { /* 错误信息已由拦截层提示 */ }
-    };
+    const openIncome = () => { incomeVisible.value = true; };
+    const openExpense = () => { expenseVisible.value = true; };
+    const onSaved = () => window.dispatchEvent(new Event('pm-data-changed'));
     return { monthIncome, monthExpense, assetTotal, investTotal, investProfit,
-             recent, invests, dateStr, go, shareLine, profitVal, profitCls, fmt, loadCashAssets,
-             incomeVisible, expenseVisible, incomeForm, expenseForm,
-             openIncome, openExpense, saveIncome, saveExpense, cashAssets,
-             incomeCategories, expenseCategories: expenseCategories.filter(c => c !== '投资'),
+             recent, invests, dateStr, go, shareLine, profitVal, profitCls, fmt,
+             incomeVisible, expenseVisible, openIncome, openExpense, onSaved,
              channelName: c => ({ THS: '同花顺' }[c] || c) };
   },
   template: `<div class="m-wrap">
@@ -2965,7 +3097,7 @@ const MobileFinancePage = {
     <div class="m-sec">
       <div class="m-sec-head">
         <div class="m-sec-icon" style="background:rgba(245,108,108,.12);color:#f56c6c"><el-icon :size="16"><Wallet /></el-icon></div>
-        <span class="m-sec-title">本月收支与最近记录</span>
+        <span class="m-sec-title">收支</span>
         <span class="m-sec-more" @click="go('#/m/month-detail')">详情<el-icon :size="12"><ArrowRight /></el-icon></span>
       </div>
       <div class="m-kv">
@@ -2989,7 +3121,7 @@ const MobileFinancePage = {
       <div class="m-sec-head">
         <div class="m-sec-icon" style="background:rgba(0,122,255,.12);color:#007aff"><el-icon :size="16"><TrendCharts /></el-icon></div>
         <span class="m-sec-title">投资</span>
-        <span class="m-sec-more" @click="go('#/investment')">管理<el-icon :size="12"><ArrowRight /></el-icon></span>
+        <span class="m-sec-more" @click="go('#/investment')">{{ invests.length ? '管理' : '添加一笔投资' }}<el-icon :size="12"><ArrowRight /></el-icon></span>
       </div>
       <div class="m-kv">
         <div class="m-kv-item"><span class="m-k">总市值</span><b style="font-size:18px">¥ {{ fmt(investTotal) }}</b></div>
@@ -3014,128 +3146,181 @@ const MobileFinancePage = {
       <span class="m-sec-more">美元 · 日元 · 港元 · 欧元 · 英镑<el-icon :size="12"><ArrowRight /></el-icon></span>
     </div>
 
-    <el-dialog v-model="incomeVisible" title="记一笔收入" width="92%" style="max-width:420px" @open="loadCashAssets">
-      <el-form label-width="64px">
-        <el-form-item label="金额"><el-input-number v-model="incomeForm.amount" :min="0" :precision="2" style="width:100%" controls-position="right" /></el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="incomeForm.category" style="width:100%">
-            <el-option v-for="c in incomeCategories" :key="c" :label="c" :value="c" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="日期"><el-date-picker v-model="incomeForm.recordDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
-        <el-form-item label="资产">
-          <el-select v-model="incomeForm.assetId" placeholder="选择现金/银行卡资产" style="width:100%">
-            <el-option v-for="a in cashAssets" :key="a.id" :label="a.name + '（¥ ' + fmt(a.value) + '）'" :value="a.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="备注"><el-input v-model="incomeForm.remark" placeholder="选填" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="incomeVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveIncome">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="expenseVisible" title="记一笔支出" width="92%" style="max-width:420px" @open="loadCashAssets">
-      <el-form label-width="64px">
-        <el-form-item label="金额"><el-input-number v-model="expenseForm.amount" :min="0" :precision="2" style="width:100%" controls-position="right" /></el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="expenseForm.category" style="width:100%">
-            <el-option v-for="c in expenseCategories" :key="c" :label="c" :value="c" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="日期"><el-date-picker v-model="expenseForm.recordDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
-        <el-form-item label="资产">
-          <el-select v-model="expenseForm.assetId" placeholder="选择现金/银行卡资产" style="width:100%">
-            <el-option v-for="a in cashAssets" :key="a.id" :label="a.name + '（¥ ' + fmt(a.value) + '）'" :value="a.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="备注"><el-input v-model="expenseForm.remark" placeholder="选填" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="expenseVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveExpense">保存</el-button>
-      </template>
-    </el-dialog>
+    <MobileMoneyDialog type="income" v-model:visible="incomeVisible" @saved="onSaved" />
+    <MobileMoneyDialog type="expense" v-model:visible="expenseVisible" @saved="onSaved" />
   </div>`
 };
 
-/* ---------------- 移动端：本月收支构成（收入/支出分类饼图） ---------------- */
-const MobileMonthPage = {
+/* ---------------- 移动端：月份滑轮（年/月两列，滚动选择，无 input 不缩放） ---------------- */
+const MonthWheel = {
+  props: { modelValue: String },
+  emits: ['confirm', 'cancel'],
+  setup(props, { emit }) {
+    const H = 36;
+    const curYear = new Date().getFullYear();
+    const years = []; for (let y = curYear - 12; y <= curYear + 3; y++) years.push(y);
+    const months12 = Array.from({ length: 12 }, (_, i) => i + 1);
+    const p = (props.modelValue || monthPrefix).split('-').map(Number);
+    const sel = reactive({ y: p[0], m: p[1] || 1 });
+    const root = ref(null);
+    const onWheel = k => ev => {
+      const el = ev.target;
+      clearTimeout(el._wt);
+      el._wt = setTimeout(() => {
+        const list = k === 'y' ? years : months12;
+        let idx = Math.round(el.scrollTop / H);
+        idx = Math.max(0, Math.min(idx, list.length - 1));
+        if (Math.abs(el.scrollTop - idx * H) > 1) el.scrollTop = idx * H;
+        const v = list[idx];
+        if (sel[k] !== v) sel[k] = v;
+      }, 90);
+    };
+    onMounted(() => {
+      const set = (k, idx) => { const el = root.value.querySelector('[data-wheel="' + k + '"]'); if (el) el.scrollTop = Math.max(0, idx) * H; };
+      set('y', years.indexOf(sel.y)); set('m', sel.m - 1);
+    });
+    const text = computed(() => sel.y + '年' + sel.m + '月');
+    const pad = n => String(n).padStart(2, '0');
+    const ok = () => emit('confirm', sel.y + '-' + pad(sel.m));
+    const cancel = () => emit('cancel');
+    return { root, years, months12, onWheel, text, ok, cancel };
+  },
+  template: `<div class="wr-mask" ref="root" @click="cancel">
+    <div class="wr-sheet" @click.stop>
+      <div class="wr-head"><span class="wr-cancel" @click="cancel">取消</span><b>选择月份</b><span class="wr-ok" @click="ok">确定</span></div>
+      <div class="wr-title">{{ text }}</div>
+      <div class="wr-group">
+        <span class="wr-label">月份</span>
+        <div class="wr-wheels">
+          <div class="wr-wheel" data-wheel="y" @scroll="onWheel('y')"><div class="wr-item" v-for="y in years" :key="y">{{ y }}年</div></div>
+          <div class="wr-wheel" data-wheel="m" @scroll="onWheel('m')"><div class="wr-item" v-for="m in months12" :key="m">{{ m }}月</div></div>
+        </div>
+      </div>
+    </div>
+  </div>`
+};
+
+/* ---------------- 移动端：收支趋势图（样式与投资总市值/盈亏走势一致） ---------------- */
+const MobileIeChart = {
   setup() {
-    const incomeEl = ref(null);
-    const expenseEl = ref(null);
-    let incomeChart = null, expenseChart = null;
-    const incomeEmpty = ref(true), expenseEmpty = ref(true);
-    const renderPie = (chart, el, rows) => {
-      if (!chart) return;
-      if (!rows.length) {
-        chart.setOption({
-          title: { text: '本月暂无记录', left: 'center', top: 'center', textStyle: { color: '#c0c4cc', fontSize: 13, fontWeight: 'normal' } },
-          series: []
-        }, true);
-        return;
-      }
-      chart.setOption({
-        textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
-        color: ['#ff9500', '#ff3b30', '#af52de', '#007aff', '#34c759', '#5ac8fa', '#8e8e93', '#ffd60a'],
-        tooltip: { trigger: 'item', textStyle: { fontSize: 11 }, formatter: p => p.name + '<br/>¥ ' + Number(p.value).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) + '（' + p.percent + '%）' },
-        legend: { bottom: 0, icon: 'circle', itemWidth: 8, itemHeight: 8, itemGap: 10, textStyle: { color: '#6e6e73', fontSize: 10 } },
-        series: [{
-          type: 'pie', radius: ['42%', '64%'], center: ['50%', '42%'],
-          itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 6 },
-          label: { show: false },
-          emphasis: { scaleSize: 6, label: { show: true, formatter: '{d}%', color: '#1d1d1f', fontSize: 13, fontWeight: 'bold' } },
-          data: rows
-        }]
-      }, true);
+    const el = ref(null);
+    let chart = null;
+    const now = new Date();
+    const ymOf = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    const range = ref([ymOf(new Date(now.getFullYear(), now.getMonth() - 5, 1)), ymOf(now)]);
+    const onPill = ({ start, end, preset }) => {
+      if (preset === 'all') { range.value = ['2015-01', ymOf(new Date())]; return; }
+      range.value = [start.slice(0, 7), end.slice(0, 7)];
     };
     const render = async () => {
-      const [inc, exp] = await Promise.all([
-        apiGet('/income/list', { pageNum: 1, pageSize: 1000, month: monthPrefix }).catch(() => []),
-        apiGet('/stats/expense-category', { month: monthPrefix }).catch(() => [])
-      ]);
-      const arr = Array.isArray(inc) ? inc : (inc ? inc.list || [] : []);
-      const g = {};
-      arr.forEach(x => { g[x.category] = (g[x.category] || 0) + (Number(x.amount) || 0); });
-      const incomeRows = Object.keys(g).map(k => ({ name: k, value: Math.round(g[k] * 100) / 100 })).filter(d => d.value > 0);
-      const expenseRows = Array.isArray(exp) ? exp.map(d => ({ name: d.category, value: d.amount })) : [];
-      incomeEmpty.value = !incomeRows.length;
-      expenseEmpty.value = !expenseRows.length;
-      renderPie(incomeChart, incomeEl.value, incomeRows);
-      renderPie(expenseChart, expenseEl.value, expenseRows);
+      if (!chart) return;
+      const data = await apiGet('/stats/income-expense', { startMonth: range.value[0], endMonth: range.value[1] }).catch(() => null);
+      if (!data) return;
+      chart.setOption({
+        textStyle: { fontFamily: '-apple-system, "PingFang SC", "Helvetica Neue", sans-serif' },
+        tooltip: { trigger: 'axis', textStyle: { fontSize: 11 }, valueFormatter: v => '¥ ' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) },
+        legend: { data: ['收入', '支出'], top: 4, right: 4, icon: 'roundRect', itemWidth: 10, itemHeight: 3, textStyle: { fontSize: 10, color: '#6e6e73' } },
+        grid: { left: 4, right: 4, top: 30, bottom: 4, containLabel: true },
+        xAxis: {
+          type: 'category', data: data.map(d => d.month.slice(2)),
+          axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
+          axisTick: { show: false }, axisLabel: { color: '#86868b', fontSize: 10 }
+        },
+        yAxis: {
+          type: 'value', position: 'right',
+          splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+          axisLabel: { color: '#86868b', fontSize: 10, formatter: v => Math.abs(v) >= 10000 ? Math.round(v / 10000) + '万' : v }
+        },
+        series: [
+          { name: '收入', type: 'line', smooth: false, symbol: 'none', data: data.map(d => d.income),
+            lineStyle: { width: 2, color: '#ff3b30' }, itemStyle: { color: '#ff3b30' },
+            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(255,59,48,0.18)' }, { offset: 1, color: 'rgba(255,59,48,0.02)' }]) } },
+          { name: '支出', type: 'line', smooth: false, symbol: 'none', data: data.map(d => d.expense),
+            lineStyle: { width: 2, color: '#34c759' }, itemStyle: { color: '#34c759' },
+            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(52,199,89,0.14)' }, { offset: 1, color: 'rgba(52,199,89,0.02)' }]) } }
+        ]
+      }, true);
     };
-    const resizeAll = () => { incomeChart && incomeChart.resize(); expenseChart && expenseChart.resize(); };
+    const resize = () => { if (!chart) return; chart.resize(); render(); };
+    watch(range, render);
     onMounted(() => {
-      incomeChart = echarts.init(incomeEl.value);
-      expenseChart = echarts.init(expenseEl.value);
+      chart = echarts.init(el.value);
       render();
-      window.addEventListener('resize', resizeAll);
+      window.addEventListener('resize', resize);
       window.addEventListener('pm-data-changed', render);
     });
     onBeforeUnmount(() => {
-      window.removeEventListener('resize', resizeAll);
+      window.removeEventListener('resize', resize);
       window.removeEventListener('pm-data-changed', render);
-      incomeChart && incomeChart.dispose();
-      expenseChart && expenseChart.dispose();
+      chart && chart.dispose();
     });
-    return { incomeEl, expenseEl, incomeEmpty, expenseEmpty };
+    return { el, range, onPill };
+  },
+  template: `<div class="m-sec">
+    <div class="m-sec-head">
+      <div class="m-sec-icon" style="background:rgba(245,108,108,.12);color:#f56c6c"><el-icon :size="16"><TrendCharts /></el-icon></div>
+      <span class="m-sec-title">收支趋势</span>
+    </div>
+    <RangePills :start="range[0]" :end="range[1]" @change="onPill" />
+    <div ref="el" style="height:200px;margin-top:4px"></div>
+  </div>`
+};
+
+/* ---------------- 移动端：收支详情（趋势图 + 收入/支出列表切换 + 记账 + 月份滚动选择） ---------------- */
+const MobileMonthPage = {
+  setup() {
+    const tab = ref('income');
+    const month = ref(monthPrefix);
+    const list = ref([]);
+    const loading = ref(false);
+    const monthWheelVisible = ref(false);
+    const incomeVisible = ref(false);
+    const expenseVisible = ref(false);
+    const load = async () => {
+      loading.value = true;
+      try {
+        const data = await apiGet('/' + tab.value + '/list', { pageNum: 1, pageSize: 1000, month: month.value }).catch(() => []);
+        list.value = Array.isArray(data) ? data : (data ? data.list || [] : []);
+      } finally { loading.value = false; }
+    };
+    watch([tab, month], load);
+    onMounted(() => { load(); window.addEventListener('pm-data-changed', load); });
+    onBeforeUnmount(() => window.removeEventListener('pm-data-changed', load));
+    const total = computed(() => list.value.reduce((s, x) => s + (Number(x.amount) || 0), 0));
+    const onMonth = v => { monthWheelVisible.value = false; month.value = v; };
+    const onSaved = () => window.dispatchEvent(new Event('pm-data-changed'));
+    const monthText = computed(() => { const p = month.value.split('-'); return Number(p[0]) + '年' + Number(p[1]) + '月'; });
+    return { tab, month, list, loading, total, monthText,
+             monthWheelVisible, incomeVisible, expenseVisible, onMonth, onSaved, fmt };
   },
   template: `<div class="m-wrap">
+    <MobileIeChart />
     <div class="m-sec">
       <div class="m-sec-head">
-        <div class="m-sec-icon" style="background:rgba(255,59,48,.12);color:#ff3b30"><el-icon :size="16"><Wallet /></el-icon></div>
-        <span class="m-sec-title">本月收入构成</span>
+        <div class="m-sec-icon" style="background:rgba(245,108,108,.12);color:#f56c6c"><el-icon :size="16"><Wallet /></el-icon></div>
+        <div class="m-month-tabs">
+          <span class="m-month-tab" :class="{ on: tab === 'income' }" @click="tab = 'income'">收入</span>
+          <span class="m-month-tab" :class="{ on: tab === 'expense' }" @click="tab = 'expense'">支出</span>
+        </div>
+        <span class="m-sec-more" @click="monthWheelVisible = true">{{ monthText }}<el-icon :size="12"><ArrowDown /></el-icon></span>
       </div>
-      <div ref="incomeEl" style="height:260px"></div>
-    </div>
-    <div class="m-sec">
-      <div class="m-sec-head">
-        <div class="m-sec-icon" style="background:rgba(52,199,89,.12);color:#34c759"><el-icon :size="16"><Wallet /></el-icon></div>
-        <span class="m-sec-title">本月支出构成</span>
+      <div class="m-line" v-for="r in list" :key="r.id">
+        <div class="m-line-main">
+          <div class="m-line-name">{{ r.category }}</div>
+          <div class="m-line-sub">{{ r.recordDate }}<template v-if="r.assetName"> · {{ r.assetName }}</template><template v-if="r.remark"> · {{ r.remark }}</template></div>
+        </div>
+        <b :class="tab === 'income' ? 'green' : 'red'" style="font-variant-numeric:tabular-nums">{{ (tab === 'income' ? '+' : '-') + fmt(r.amount) }}</b>
       </div>
-      <div ref="expenseEl" style="height:260px"></div>
+      <div v-if="!loading && !list.length" class="m-empty">该月暂无{{ tab === 'income' ? '收入' : '支出' }}记录</div>
+      <div class="m-month-total">合计：<b :class="tab === 'income' ? 'green' : 'red'">{{ (tab === 'income' ? '+' : '-') + fmt(total) }}</b></div>
+      <div style="display:flex;gap:10px;padding:12px 0 8px">
+        <el-button style="flex:1" :disabled="tab !== 'income'" @click="incomeVisible = true">记一笔收入</el-button>
+        <el-button style="flex:1" type="danger" plain :disabled="tab !== 'expense'" @click="expenseVisible = true">记一笔支出</el-button>
+      </div>
     </div>
+    <MonthWheel v-if="monthWheelVisible" :model-value="month" @confirm="onMonth" @cancel="monthWheelVisible = false" />
+    <MobileMoneyDialog type="income" v-model:visible="incomeVisible" @saved="onSaved" />
+    <MobileMoneyDialog type="expense" v-model:visible="expenseVisible" @saved="onSaved" />
   </div>`
 };
 
@@ -3143,8 +3328,8 @@ const MobileMonthPage = {
 const routes = {
   '/dashboard':  { comp: DashboardPage, title: '主页' },
   '/m/finance':  { comp: MobileFinancePage, title: '财务' },
-  '/m/month-detail': { comp: MobileMonthPage, title: '本月收支构成' },
-  '/m/health':   { comp: WeightPage,  title: '身体' },
+  '/m/month-detail': { comp: MobileMonthPage, title: '收支详情' },
+  '/m/health':   { comp: MobileHealthPage,  title: '健康' },
   '/income':     { comp: IncomePage,    title: '收入' },
   '/expense':    { comp: ExpensePage,   title: '支出' },
   '/investment': { comp: InvestmentPage,title: '投资' },
@@ -3214,7 +3399,7 @@ const App = {
         <el-icon :size="20"><Wallet /></el-icon><span>财务</span>
       </div>
       <div class="m-tab" :class="{ active: route === '#/m/health' || route === '#/health/weight' }" @click="go('#/m/health')">
-        <el-icon :size="20"><FirstAidKit /></el-icon><span>身体</span>
+        <el-icon :size="20"><FirstAidKit /></el-icon><span>健康</span>
       </div>
     </nav>
   </div>`
@@ -3238,6 +3423,10 @@ app.component('HomeTrendChart', HomeTrendChart);
 app.component('HomeExpensePie', HomeExpensePie);
 app.component('RangePills', RangePills);
 app.component('MobileWheelRange', MobileWheelRange);
+app.component('MobileMoneyDialog', MobileMoneyDialog);
+app.component('MonthWheel', MonthWheel);
+app.component('MobileIeChart', MobileIeChart);
+app.component('MobileHealthPage', MobileHealthPage);
 app.component('WeightTrendChart', WeightTrendChart);
 app.component('DietCalorieChart', DietCalorieChart);
 for (const [name, comp] of Object.entries(ElementPlusIconsVue)) app.component(name, comp);
