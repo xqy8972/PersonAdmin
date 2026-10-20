@@ -43,6 +43,9 @@ public class ExpenseService {
     @Autowired
     private InvestmentService investmentService;
 
+    @Autowired
+    private AssetFlowService assetFlowService;
+
     /** 支出分类「投资」：只涉及资产↔投资划转，不计入支出统计（统计 SQL 已排除） */
     private static final String CATEGORY_INVEST = "投资";
 
@@ -87,6 +90,9 @@ public class ExpenseService {
         expense.setRemark(expense.getRemark() == null ? "" : expense.getRemark());
         expenseMapper.insert(expense);
         assetMapper.adjustValue(asset.getId(), userId, expense.getAmount().negate());
+        assetFlowService.record(userId, asset.getId(), AssetFlowService.TYPE_EXPENSE,
+                expense.getAmount().negate(), expense.getRecordDate(),
+                AssetFlowService.REF_EXPENSE, expense.getId(), expense.getCategory());
         // 类型为「投资」：金额从资产转入投资（渠道同步来的投资不产生变化，由渠道侧同步）
         applyInvestLink(userId, expense);
         snapshotService.recordToday(userId);
@@ -121,11 +127,16 @@ public class ExpenseService {
         }
         // 先回滚旧记录的投资联动（旧记录若是投资型且当时联动过），再按新记录重新联动
         reverseInvestLink(userId, old);
+        // 资产变动流水回滚旧记录，保存后按新记录补记
+        assetFlowService.rollback(userId, AssetFlowService.REF_EXPENSE, id);
         expense.setId(id);
         expense.setUserId(userId);
         if (expenseMapper.update(expense) == 0) {
             throw BizException.badRequest("记录不存在或不属于当前用户");
         }
+        assetFlowService.record(userId, asset.getId(), AssetFlowService.TYPE_EXPENSE,
+                expense.getAmount().negate(), expense.getRecordDate(),
+                AssetFlowService.REF_EXPENSE, id, expense.getCategory());
         applyInvestLink(userId, expense);
         snapshotService.recordToday(userId);
         return expense;
@@ -143,6 +154,7 @@ public class ExpenseService {
             assetMapper.adjustValue(old.getAssetId(), userId, old.getAmount());
         }
         reverseInvestLink(userId, old);
+        assetFlowService.rollback(userId, AssetFlowService.REF_EXPENSE, id);
         expenseMapper.delete(id, userId);
         snapshotService.recordToday(userId);
     }

@@ -75,6 +75,9 @@ public class InvestmentService {
     @Autowired
     private MarketService marketService;
 
+    @Autowired
+    private AssetFlowService assetFlowService;
+
     /**
      * 投资列表：按当前最新总市值从大到小排列；
      * 带行情代码的标的按缓存实时计算市值（不改数据库，收盘后由定时任务落库）。
@@ -234,8 +237,11 @@ public class InvestmentService {
         buy.setAmount(investment.getAmount());
         buy.setFee(tradeFee);
         tradeMapper.insert(buy);
-        if (asset != null && !investment.getBuyDate().isBefore(LocalDate.now())) {
+        if (asset != null) {
             assetMapper.adjustValue(asset.getId(), userId, investment.getAmount().negate());
+            assetFlowService.record(userId, asset.getId(), AssetFlowService.TYPE_INVEST_BUY,
+                    investment.getAmount().negate(), investment.getBuyDate(),
+                    AssetFlowService.REF_INVESTMENT, investment.getId(), "新增投资：" + investment.getName());
         }
         // 买入日期早于今天：投资在买入日按当前市值补记（资产侧不在历史日期补快照——
         // 历史余额无法从当前余额反推，且历史买入不调整当前余额，见 buy/sell 同口径），
@@ -297,6 +303,8 @@ public class InvestmentService {
 
         BigDecimal oldAmount = old.getAmount() == null ? BigDecimal.ZERO : old.getAmount();
         BigDecimal oldValue = old.getCurrentValue() == null ? BigDecimal.ZERO : old.getCurrentValue();
+        // 编辑产生的资产变动流水（ref=investment_edit）先回滚，下面按新状态补记
+        assetFlowService.rollback(userId, AssetFlowService.REF_INVEST_EDIT, id);
         // 份额/金额变化量（非零时记一笔加仓/减仓交易）
         Integer tradeSharesDelta = null;
         BigDecimal tradeAmountDelta = null;
@@ -331,12 +339,16 @@ public class InvestmentService {
                 // 撤下或换出旧资产：旧投入退回（存续投资原本未扣款，旧资产为空则跳过）
                 if (old.getSourceAssetId() != null) {
                     assetMapper.adjustValue(old.getSourceAssetId(), userId, oldAmount);
+                    assetFlowService.record(userId, old.getSourceAssetId(), AssetFlowService.TYPE_INVEST_EDIT,
+                            oldAmount, LocalDate.now(), AssetFlowService.REF_INVEST_EDIT, id, "撤下投资退回：" + old.getName());
                 }
                 // 挂入新资产：按新的累计投入全额扣款（存续投资补挂时把历史投入一次性补上）
                 if (newAssetId != null) {
                     Asset newAsset = assetSupport.requireCashAsset(userId, newAssetId);
                     assetSupport.checkBalance(newAsset, newAmount);
                     assetMapper.adjustValue(newAsset.getId(), userId, newAmount.negate());
+                    assetFlowService.record(userId, newAssetId, AssetFlowService.TYPE_INVEST_EDIT,
+                            newAmount.negate(), LocalDate.now(), AssetFlowService.REF_INVEST_EDIT, id, "挂入投资扣款：" + investment.getName());
                 }
             } else if (newAssetId != null) {
                 if (delta.compareTo(BigDecimal.ZERO) > 0) {
@@ -345,6 +357,10 @@ public class InvestmentService {
                     assetMapper.adjustValue(asset.getId(), userId, delta.negate());
                 } else if (delta.compareTo(BigDecimal.ZERO) < 0) {
                     assetMapper.adjustValue(newAssetId, userId, delta.negate());
+                }
+                if (delta.compareTo(BigDecimal.ZERO) != 0) {
+                    assetFlowService.record(userId, newAssetId, AssetFlowService.TYPE_INVEST_EDIT,
+                            delta.negate(), LocalDate.now(), AssetFlowService.REF_INVEST_EDIT, id, "投资调整：" + investment.getName());
                 }
             }
             investment.setAmount(newAmount);
@@ -367,12 +383,16 @@ public class InvestmentService {
                 // 撤下或换出旧资产：旧投入退回（存续投资原本未扣款，旧资产为空则跳过）
                 if (old.getSourceAssetId() != null) {
                     assetMapper.adjustValue(old.getSourceAssetId(), userId, oldAmount);
+                    assetFlowService.record(userId, old.getSourceAssetId(), AssetFlowService.TYPE_INVEST_EDIT,
+                            oldAmount, LocalDate.now(), AssetFlowService.REF_INVEST_EDIT, id, "撤下投资退回：" + old.getName());
                 }
                 // 挂入新资产：按新的累计投入全额扣款（存续投资补挂时把历史投入一次性补上）
                 if (newAssetId != null) {
                     Asset newAsset = assetSupport.requireCashAsset(userId, newAssetId);
                     assetSupport.checkBalance(newAsset, newAmount);
                     assetMapper.adjustValue(newAsset.getId(), userId, newAmount.negate());
+                    assetFlowService.record(userId, newAssetId, AssetFlowService.TYPE_INVEST_EDIT,
+                            newAmount.negate(), LocalDate.now(), AssetFlowService.REF_INVEST_EDIT, id, "挂入投资扣款：" + investment.getName());
                 }
             } else if (newAssetId != null) {
                 if (delta.compareTo(BigDecimal.ZERO) > 0) {
@@ -381,6 +401,10 @@ public class InvestmentService {
                     assetMapper.adjustValue(asset.getId(), userId, delta.negate());
                 } else if (delta.compareTo(BigDecimal.ZERO) < 0) {
                     assetMapper.adjustValue(newAssetId, userId, delta.negate());
+                }
+                if (delta.compareTo(BigDecimal.ZERO) != 0) {
+                    assetFlowService.record(userId, newAssetId, AssetFlowService.TYPE_INVEST_EDIT,
+                            delta.negate(), LocalDate.now(), AssetFlowService.REF_INVEST_EDIT, id, "投资调整：" + investment.getName());
                 }
             }
             tradeAmountDelta = newAmount.subtract(oldAmount);
@@ -437,6 +461,10 @@ public class InvestmentService {
         }
         if (old.getSourceAssetId() != null && old.getAmount() != null) {
             assetMapper.adjustValue(old.getSourceAssetId(), userId, old.getAmount());
+            // 新增时的扣款流水（ref=investment）回滚，改记一笔删除退回流水
+            assetFlowService.rollback(userId, AssetFlowService.REF_INVESTMENT, id);
+            assetFlowService.record(userId, old.getSourceAssetId(), AssetFlowService.TYPE_INVEST_DELETE,
+                    old.getAmount(), LocalDate.now(), AssetFlowService.REF_INVESTMENT, id, "删除投资退回：" + old.getName());
         }
         investmentMapper.delete(id, userId);
         valueHistoryMapper.deleteByInvestmentId(id, userId);
@@ -525,7 +553,9 @@ public class InvestmentService {
             throw BizException.badRequest("标的不存在或不属于当前用户");
         }
         checkNotChannelSynced(old);
-        Asset asset = assetSupport.requireCashAsset(userId, sell.getAssetId());
+        // 回款资产选填：不填则卖出所得不回到任何资产（外部资金），只记台账
+        Asset asset = sell.getAssetId() == null ? null
+                : assetSupport.requireCashAsset(userId, sell.getAssetId());
         LocalDate tradeDate = sell.getTradeDate() != null ? sell.getTradeDate() : LocalDate.now();
         if (tradeDate.isAfter(LocalDate.now())) {
             throw BizException.badRequest("卖出日期不能晚于今天");
@@ -592,10 +622,8 @@ public class InvestmentService {
             newValue = oldValue.subtract(proceeds);
         }
 
-        // 资产调整仅限「今天」成交的买卖：历史日期是补录，资金变动早已体现在当前余额里，
-        // 再调一次会重复计入（补录历史卖出会让资产余额凭空多出一份卖出所得）
-        boolean tradeToday = !tradeDate.isBefore(LocalDate.now());
-        if (tradeToday) {
+        // 选了回款资产即入账（不限当天）：流水按交易日期落账；不选则所得不回到任何资产
+        if (asset != null) {
             assetMapper.adjustValue(asset.getId(), userId, proceeds);
         }
         // 交易记录：每次卖出记一笔 SELL（K 线卖出标记与历史盈亏计算的数据源）
@@ -613,8 +641,13 @@ public class InvestmentService {
                 : null);
         sellTrade.setAmount(proceeds);
         sellTrade.setFee(tradeFee);
-        sellTrade.setTargetAssetId(sell.getAssetId());
+        sellTrade.setTargetAssetId(asset != null ? asset.getId() : null);
         tradeMapper.insert(sellTrade);
+        if (asset != null) {
+            assetFlowService.record(userId, asset.getId(), AssetFlowService.TYPE_INVEST_SELL,
+                    proceeds, tradeDate, AssetFlowService.REF_INVEST_TRADE, sellTrade.getId(),
+                    "卖出回款：" + old.getName());
+        }
 
         // 投入金额 = 台账净额（Σ买 − Σ卖，摊薄口径，与同花顺一致）：
         // 清仓后也不一定为 0（累计卖出超过买入时净额为负，同花顺即如此展示）
@@ -716,9 +749,8 @@ public class InvestmentService {
 
         Asset asset = buy.getAssetId() == null ? null
                 : assetSupport.requireCashAsset(userId, buy.getAssetId());
-        // 与卖出一致：历史日期是补录，资金变动早已体现在当前余额里，不再重复扣款
-        boolean tradeToday = !tradeDate.isBefore(LocalDate.now());
-        if (asset != null && tradeToday) {
+        // 选了出资资产即扣款（不限当天）：流水按交易日期落账，历史补录同样从当前余额扣出并记录
+        if (asset != null) {
             assetSupport.checkBalance(asset, cost);
             assetMapper.adjustValue(asset.getId(), userId, cost.negate());
         }
@@ -748,6 +780,11 @@ public class InvestmentService {
         buyTrade.setFee(tradeFee);
         buyTrade.setRemark(buy.getRemark() == null ? "" : buy.getRemark());
         tradeMapper.insert(buyTrade);
+        if (asset != null) {
+            assetFlowService.record(userId, asset.getId(), AssetFlowService.TYPE_INVEST_BUY,
+                    cost.negate(), tradeDate, AssetFlowService.REF_INVEST_TRADE, buyTrade.getId(),
+                    "买入加仓：" + old.getName());
+        }
 
         // 投入金额 = 台账净额（Σ买 − Σ卖，摊薄口径），新增买入后同步
         BigDecimal netAmount = tradeMapper.netAmount(id, userId).setScale(2, RoundingMode.HALF_UP);

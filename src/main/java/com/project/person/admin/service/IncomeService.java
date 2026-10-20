@@ -32,6 +32,9 @@ public class IncomeService {
     @Autowired
     private SnapshotService snapshotService;
 
+    @Autowired
+    private AssetFlowService assetFlowService;
+
     public PageResult<Income> list(String month, int pageNum, int pageSize, String keyword) {
         YearMonth ym = parseMonth(month, true);
         Long userId = UserContext.getUserId();
@@ -52,6 +55,8 @@ public class IncomeService {
         income.setRemark(income.getRemark() == null ? "" : income.getRemark());
         incomeMapper.insert(income);
         assetMapper.adjustValue(asset.getId(), userId, income.getAmount());
+        assetFlowService.record(userId, asset.getId(), AssetFlowService.TYPE_INCOME,
+                income.getAmount(), income.getRecordDate(), AssetFlowService.REF_INCOME, income.getId(), income.getCategory());
         snapshotService.recordToday(userId);
         return income;
     }
@@ -66,6 +71,8 @@ public class IncomeService {
             throw BizException.badRequest("记录不存在或不属于当前用户");
         }
         Asset asset = assetSupport.requireCashAsset(userId, income.getAssetId());
+        // 回滚旧流水再按新值补记（资产变动流水与单据保持一致）
+        assetFlowService.rollback(userId, AssetFlowService.REF_INCOME, id);
         if (old.getAssetId() != null) {
             assetMapper.adjustValue(old.getAssetId(), userId, old.getAmount().negate());
         }
@@ -75,6 +82,8 @@ public class IncomeService {
         if (incomeMapper.update(income) == 0) {
             throw BizException.badRequest("记录不存在或不属于当前用户");
         }
+        assetFlowService.record(userId, asset.getId(), AssetFlowService.TYPE_INCOME,
+                income.getAmount(), income.getRecordDate(), AssetFlowService.REF_INCOME, id, income.getCategory());
         snapshotService.recordToday(userId);
         return income;
     }
@@ -90,6 +99,7 @@ public class IncomeService {
         if (old.getAssetId() != null && old.getAmount() != null) {
             assetMapper.adjustValue(old.getAssetId(), userId, old.getAmount().negate());
         }
+        assetFlowService.rollback(userId, AssetFlowService.REF_INCOME, id);
         incomeMapper.delete(id, userId);
         snapshotService.recordToday(userId);
     }

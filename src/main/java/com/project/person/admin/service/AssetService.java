@@ -40,6 +40,9 @@ public class AssetService {
     @Autowired
     private SnapshotService snapshotService;
 
+    @Autowired
+    private AssetFlowService assetFlowService;
+
     public List<Asset> list() {
         return assetMapper.list(UserContext.getUserId());
     }
@@ -71,10 +74,25 @@ public class AssetService {
     public Asset update(Long id, Asset asset) {
         checkAsset(asset);
         Long userId = UserContext.getUserId();
+        Asset old = assetMapper.findById(id, userId);
+        if (old == null) {
+            throw BizException.badRequest("资产不存在或不属于当前用户");
+        }
         asset.setId(id);
         asset.setUserId(userId);
         if (assetMapper.update(asset) == 0) {
             throw BizException.badRequest("资产不存在或不属于当前用户");
+        }
+        // 手动改估值的差额记资产变动流水（估值快照 addValue 不算资金流动，不记），
+        // 编辑流水按 ref=asset_edit 回滚后重记，日期取生效日期（留空为今天）
+        BigDecimal oldV = old.getCurrentValue() == null ? BigDecimal.ZERO : old.getCurrentValue();
+        BigDecimal newV = asset.getCurrentValue() == null ? oldV : asset.getCurrentValue();
+        BigDecimal delta = newV.subtract(oldV);
+        assetFlowService.rollback(userId, AssetFlowService.REF_ASSET_EDIT, id);
+        if (delta.compareTo(BigDecimal.ZERO) != 0) {
+            assetFlowService.record(userId, id, AssetFlowService.TYPE_ASSET_ADJUST, delta,
+                    asset.getChangeDate() != null ? asset.getChangeDate() : LocalDate.now(),
+                    AssetFlowService.REF_ASSET_EDIT, id, "编辑资产估值");
         }
         // 编辑指定了生效日期：重定折线图起点——新日期之前的历史快照不再展示（否则旧起点残留，改晚不生效），
         // 再在新日期补记一条；留空则只反映到今日
@@ -100,6 +118,7 @@ public class AssetService {
         }
         assetMapper.delete(id, userId);
         valueHistoryMapper.deleteByAssetId(id, userId);
+        assetFlowService.purgeByAsset(userId, id);
         snapshotService.purgeHistory(userId, DailySnapshot.KIND_ASSET, id);
         snapshotService.recordToday(userId);
     }
@@ -127,8 +146,11 @@ public class AssetService {
         }
         Asset dest = assetSupport.requireCashAsset(userId, sell.getAssetId());
         assetMapper.adjustValue(dest.getId(), userId, sell.getPrice());
+        assetFlowService.record(userId, dest.getId(), AssetFlowService.TYPE_ASSET_SELL,
+                sell.getPrice(), LocalDate.now(), AssetFlowService.REF_ASSET, id, "卖出资产：" + old.getName());
         assetMapper.delete(id, userId);
         valueHistoryMapper.deleteByAssetId(id, userId);
+        assetFlowService.purgeByAsset(userId, id);
         snapshotService.purgeHistory(userId, DailySnapshot.KIND_ASSET, id);
         snapshotService.recordToday(userId);
     }
@@ -163,7 +185,10 @@ public class AssetService {
         }
         Long userId = UserContext.getUserId();
         LocalDate rangeStart = startYm.atDay(1);
-        LocalDate rangeEnd = endYm.atEndOfMonth();
+        // 按月聚合同样只到本月为止，不统计未来月份
+        LocalDate today = LocalDate.now();
+        LocalDate rangeEnd = endYm.atEndOfMonth().isAfter(today)
+                ? today : endYm.atEndOfMonth();
 
         List<String> months = new ArrayList<>();
         for (YearMonth ym = startYm; !ym.isAfter(endYm); ym = ym.plusMonths(1)) {
@@ -223,6 +248,14 @@ public class AssetService {
             throw BizException.badRequest("start 不能晚于 end");
         }
         Long userId = UserContext.getUserId();
+        // 走势只展示到今天的数据：范围选到未来月份时（月末在未来），不往未来画平线
+        LocalDate today = LocalDate.now();
+        if (rangeEnd.isAfter(today)) {
+            rangeEnd = today;
+        }
+        if (rangeStart.isAfter(rangeEnd)) {
+            rangeStart = rangeEnd;
+        }
 
         List<String> days = new ArrayList<>();
         for (LocalDate d = rangeStart; !d.isAfter(rangeEnd); d = d.plusDays(1)) {

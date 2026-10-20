@@ -252,3 +252,22 @@ CREATE TABLE IF NOT EXISTS external_channel (
     UNIQUE KEY uk_external_channel (user_id, channel, account_name),
     KEY idx_external_channel_key (api_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ------------------------------------------------------------
+-- 13. 资产变动流水（收入/支出/投资买卖/资产卖出等引起的余额变化逐笔记账，
+--     与投资交易 investment_trade 同级的持久化台账；金额带符号，+流入/-流出）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS asset_flow (
+    id          BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id     BIGINT        NOT NULL,
+    asset_id    BIGINT        NOT NULL,
+    flow_type   VARCHAR(32)   NOT NULL,             -- 收入/支出/投资买入/投资卖出/投资编辑/投资删除/资产卖出/资产调整
+    amount      DECIMAL(14,2) NOT NULL,             -- 带符号人民币金额：正=资产增加，负=资产减少
+    flow_date   DATE          NOT NULL,             -- 变动发生日期（跟随业务单据日期，如交易日期）
+    ref_type    VARCHAR(32)   NOT NULL,             -- 来源单据类型：income/expense/investment/investment_trade/asset
+    ref_id      BIGINT        NOT NULL,             -- 来源单据 id（编辑单据时按 ref 回滚旧流水）
+    remark      VARCHAR(255)  NOT NULL DEFAULT '',
+    create_time DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_asset_flow_asset (user_id, asset_id, flow_date),
+    KEY idx_asset_flow_ref (user_id, ref_type, ref_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

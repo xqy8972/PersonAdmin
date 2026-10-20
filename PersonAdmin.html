@@ -643,7 +643,7 @@ const InvestmentPageRaw = makeCrudPage({
           <template v-else>
             <el-button v-if="isShareType(row.type)" size="small" type="success" @click.stop="openBuy(row)">买入</el-button>
             <el-button size="small" type="warning" @click.stop="openSell(row)">卖出</el-button>
-            <el-button size="small" @click.stop="openDialog(row)">编辑</el-button>
+            <el-button size="small" @click.stop="openTrades(row)">交易记录</el-button>
             <el-button size="small" type="danger" @click.stop="handleDelete(row.id)">删除</el-button>
           </template>
         </template>
@@ -735,9 +735,10 @@ const InvestmentPageRaw = makeCrudPage({
           : ('市值 ¥ ' + fmt(sellRow && sellRow.currentValue)))" />
       <el-form label-width="90px">
         <el-form-item label="回款资产">
-          <el-select v-model="sellForm.assetId" placeholder="卖出所得回到该资产" style="width:100%">
+          <el-select v-model="sellForm.assetId" placeholder="选填：不填则所得不回到任何资产" clearable style="width:100%">
             <el-option v-for="a in cashAssets" :key="a.id" :label="a.name + '（¥ ' + fmt(a.value) + '）'" :value="a.id" />
           </el-select>
+          <div style="line-height:18px;font-size:12px;color:#909399">不填则不产生资产变动（外部资金）；历史日期补录同样只按所填资产记录变动</div>
         </el-form-item>
         <el-form-item label="卖出日期">
           <el-date-picker v-model="sellForm.tradeDate" type="date" value-format="YYYY-MM-DD" style="width:100%" />
@@ -756,6 +757,36 @@ const InvestmentPageRaw = makeCrudPage({
       <template #footer>
         <el-button @click="sellVisible = false">取消</el-button>
         <el-button type="warning" @click="handleSell">确认卖出</el-button>
+      </template>
+    </el-dialog>
+    <el-dialog v-model="tradesVisible" :title="'交易记录 · ' + (tradesRow && tradesRow.name)" width="640px">
+      <el-table :data="tradesList" size="small" stripe max-height="360">
+        <template #empty>
+          <div style="color:#909399;font-size:13px;line-height:40px">暂无交易记录</div>
+        </template>
+        <el-table-column prop="tradeDate" label="交易日期" width="110" />
+        <el-table-column label="类型" width="70">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.tradeType === 'BUY' ? 'danger' : 'success'" effect="plain">{{ row.tradeType === 'BUY' ? '买入' : '卖出' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="股数/份额" width="90" align="right">
+          <template #default="{ row }">{{ row.shares == null ? '-' : row.shares }}</template>
+        </el-table-column>
+        <el-table-column label="单价" width="100" align="right">
+          <template #default="{ row }">{{ row.price == null ? '-' : row.price }}</template>
+        </el-table-column>
+        <el-table-column label="金额（¥）" width="110" align="right">
+          <template #default="{ row }">{{ fmt(row.amount) }}</template>
+        </el-table-column>
+        <el-table-column label="手续费" width="80" align="right">
+          <template #default="{ row }">{{ fmt(row.fee || 0) }}</template>
+        </el-table-column>
+        <el-table-column prop="remark" label="备注" min-width="100" show-overflow-tooltip />
+      </el-table>
+      <template #footer>
+        <el-button size="small" @click="tradesVisible = false; openDialog(tradesRow)">编辑标的</el-button>
+        <el-button type="primary" @click="tradesVisible = false">关闭</el-button>
       </template>
     </el-dialog>
     <el-dialog v-model="channelVisible" title="外部渠道同步" width="560px">
@@ -842,7 +873,6 @@ const InvestmentPage = {
     };
     const handleSell = async () => {
       const f = sellForm.value;
-      if (!f.assetId) { ElMessage.warning('请选择回款资产'); return; }
       if (isShareType(sellRow.value.type)) {
         if (!(f.shares > 0)) { ElMessage.warning(sellRow.value.type === '基金' ? '请填写卖出份额' : '请填写卖出股数'); return; }
         if (f.shares > sellRow.value.shares) { ElMessage.warning(sellRow.value.type === '基金' ? '卖出份额不能超过当前持有份额' : '卖出股数不能超过当前持股数'); return; }
@@ -863,6 +893,15 @@ const InvestmentPage = {
         await base.load();
         ElMessage.success('行情已刷新');
       } catch (e) { /* 错误信息已由拦截层提示 */ }
+    };
+    /* 交易记录：行的买卖台账明细（编辑入口移至本对话框底部） */
+    const tradesVisible = ref(false);
+    const tradesRow = ref(null);
+    const tradesList = ref([]);
+    const openTrades = async row => {
+      tradesRow.value = row;
+      tradesList.value = (await apiGet('/investment/' + row.id + '/trades').catch(() => [])) || [];
+      tradesVisible.value = true;
     };
     /* 行情代码防抖搜索：停留 1s 后调 /market/validate 校验并带出名称；
        走裸 fetch 而非 apiPost，避免搜索过程中的失败频繁弹错误提示（失败静默返回空列表） */
@@ -924,6 +963,7 @@ const InvestmentPage = {
     return { ...base, isShareType, codePlaceholder,
              sellVisible, sellRow, sellForm, openSell, handleSell,
              buyVisible, buyRow, buyForm, openBuy, handleBuy, refreshQuotes,
+             tradesVisible, tradesRow, tradesList, openTrades,
              searchCode, pickCode,
              channelVisible, channels, channelForm, channelName, fmtSyncTime, openChannels, addChannel, deleteChannel, copyKey };
   },
@@ -1987,7 +2027,11 @@ const InvestDailyChart = {
       // 展开行动画期间容器宽度可能为 0，echarts 初始化尺寸为 0 后 setOption 不会自动恢复，
       // 每次渲染前强制重算尺寸（首次点开空白、重选范围才显示的根因）
       chart.resize();
-      let start = '2000-01-01';
+      const list = await apiGet('/investment/list').catch(() => []);
+      const invs = Array.isArray(list) ? list : (list ? list.list || [] : []);
+      const inv = invs.find(x => x.id === props.invId);
+      const trades = (await apiGet('/investment/' + props.invId + '/trades').catch(() => [])) || [];
+      let start = dateMinusDays(30);
       if (range.value === '1m') start = dateMinusDays(30);
       else if (range.value === '3m') start = dateMinusDays(90);
       else if (range.value === '6m') start = dateMinusDays(180);
@@ -1995,11 +2039,14 @@ const InvestDailyChart = {
       else if (range.value === '2y') start = dateMinusDays(730);
       else if (range.value === '3y') start = dateMinusDays(1095);
       else if (range.value === '5y') start = dateMinusDays(1825);
-      const list = await apiGet('/investment/list').catch(() => []);
-      const invs = Array.isArray(list) ? list : (list ? list.list || [] : []);
-      const inv = invs.find(x => x.id === props.invId);
+      else {
+        // 全部/默认：从买入日（或最早一笔交易）开始展示
+        const cands = [];
+        if (inv && inv.buyDate) cands.push(inv.buyDate);
+        trades.forEach(t => { if (t.tradeDate) cands.push(t.tradeDate); });
+        start = cands.length ? cands.sort()[0] : '2000-01-01';
+      }
       const trend = await apiGet('/investment/' + props.invId + '/trend', { start: start, end: todayStr() }).catch(() => []);
-      const trades = await apiGet('/investment/' + props.invId + '/trades').catch(() => []);
       if (!inv || !trend || !trend.length) { chart.clear(); return; }
       // x 轴用完整日期（跨年范围下 MM-DD 会重复，导致买卖标记坐标错位/图渲染异常）
       const dts = trend.map(t => (t.date || '').slice(0, 10));
@@ -2021,7 +2068,8 @@ const InvestDailyChart = {
         markers.push({
           name: isBuy ? 'B' : 'S',
           value: [label, v],
-          itemStyle: { color }
+          itemStyle: { color },
+          trade: t
         });
         // 短虚线：从标记点向上延伸约 6% 量程（markLine 自定义线段是「两端点数组」格式）
         stems.push([
@@ -2042,7 +2090,16 @@ const InvestDailyChart = {
             let html = ps.length ? ps[0].axisValue : '';
             const priceUnit = (inv.code || '').startsWith('hk') ? '港币' : '元';
             (ps || []).forEach(p => {
-              if (p.seriesName === '价格') {
+              if (p.seriesName === '买卖标记') {
+                // 买入/卖出标记：悬停显示交易时间、股数/份额、单价、金额
+                const t = (p.data && p.data.trade) || {};
+                const isBuy = t.tradeType === 'BUY';
+                html += `<br/><span style="color:${isBuy ? '#ff3b30' : '#34c759'}">●</span> ` +
+                        (isBuy ? '买入' : '卖出') + ' ' + (t.tradeDate || '') +
+                        (t.shares != null ? '　' + t.shares + (inv.type === '基金' ? ' 份' : ' 股') : '') +
+                        (t.price != null ? '　单价 ' + t.price + ' ' + priceUnit : '') +
+                        (t.amount != null ? '　金额 ¥ ' + Number(t.amount).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '');
+              } else if (p.seriesName === '价格') {
                 html += `<br/>${p.marker}${p.seriesName}：${Number(p.value).toFixed(4)} ${priceUnit}`;
               } else {
                 html += `<br/>${p.marker}${p.seriesName}：¥ ${Number(p.value).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
@@ -2092,7 +2149,7 @@ const InvestDailyChart = {
             // 买卖标记用 scatter 系列（markPoint 在展开行初次渲染时序下不渲染）：
             // 红色方框白字 B=买入，绿色方框白字 S=卖出
             name: '买卖标记', type: 'scatter', data: markers, z: 10,
-            symbol: 'rect', symbolSize: 18, tooltip: { show: false },
+            symbol: 'rect', symbolSize: 18,
             label: { show: true, position: 'inside', formatter: p => p.data.name,
                      color: '#fff', fontSize: 11, fontWeight: 'bold' }
           },

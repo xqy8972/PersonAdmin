@@ -253,3 +253,19 @@ CREATE TABLE IF NOT EXISTS external_channel (
 );
 CREATE INDEX IF NOT EXISTS idx_external_channel_user ON external_channel (user_id);
 CREATE INDEX IF NOT EXISTS idx_external_channel_key ON external_channel (api_key);
+
+-- 13. 资产变动流水（收入/支出/投资买卖/资产卖出等引起的余额变化逐笔记账）
+CREATE TABLE IF NOT EXISTS asset_flow (
+    id          BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id     BIGINT        NOT NULL,
+    asset_id    BIGINT        NOT NULL,
+    flow_type   VARCHAR(32)   NOT NULL,
+    amount      DECIMAL(14,2) NOT NULL,
+    flow_date   DATE          NOT NULL,
+    ref_type    VARCHAR(32)   NOT NULL,
+    ref_id      BIGINT        NOT NULL,
+    remark      VARCHAR(255)  NOT NULL DEFAULT '',
+    create_time DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_asset_flow_asset ON asset_flow (user_id, asset_id, flow_date);
+CREATE INDEX IF NOT EXISTS idx_asset_flow_ref ON asset_flow (user_id, ref_type, ref_id);
