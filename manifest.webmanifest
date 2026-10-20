@@ -1,0 +1,15 @@
+{
+  "name": "个人管理系统",
+  "short_name": "个人管理",
+  "description": "个人收支、投资、资产与健康管理",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#e8effa",
+  "theme_color": "#e8effa",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

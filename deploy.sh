@@ -103,6 +103,16 @@ if [ -z "$SRC_HTML" ]; then
 fi
 # 复制前把接口地址替换为线上域名（仓库里保留 localhost:8089 供本地开发）
 sed "s|const API_BASE = '[^']*'|const API_BASE = '$DOMAIN/personAdmin/api'|" "$SRC_HTML" > "$NGINX_HTML/PersonAdmin.html"
-echo "前端已部署（API_BASE -> $DOMAIN/personAdmin/api）"
+# 兼容以 index.html 为索引的 nginx 配置
+cp "$NGINX_HTML/PersonAdmin.html" "$NGINX_HTML/index.html"
+# PWA 文件：manifest / Service Worker / 图标（与页面同目录，SW 作用域为 /personAdmin/）
+for f in manifest.webmanifest sw.js icon-192.png icon-512.png icon-180.png; do
+  if [ -f "$f" ]; then
+    cp "$f" "$NGINX_HTML/"
+  else
+    echo "警告：仓库中缺少 $f，PWA 功能将不完整"
+  fi
+done
+echo "前端已部署（API_BASE -> $DOMAIN/personAdmin/api，PWA 文件已同步）"
 
 echo "==================== 部署完成 $(date '+%Y-%m-%d %H:%M:%S') ===================="
