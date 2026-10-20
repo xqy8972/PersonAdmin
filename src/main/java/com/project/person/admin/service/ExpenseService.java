@@ -216,13 +216,30 @@ public class ExpenseService {
             throw BizException.badRequest("一次最多识别 9 张图片");
         }
         Long userId = UserContext.getUserId();
-        // 候选支付资产名单拼进 prompt，让模型按用户已有资产输出渠道词
+        List<Asset> cashAssets = cashAssets(userId);
+        String prompt = assetPrompt(cashAssets);
+        // 并行识别，按上传顺序汇总结果
+        List<java.util.concurrent.Future<List<com.project.person.admin.model.RecognizedExpense>>> futures =
+                new java.util.ArrayList<>();
+        for (org.springframework.web.multipart.MultipartFile file : files) {
+            futures.add(recognizePool.submit(() -> recognizeOne(file, prompt, cashAssets)));
+        }
+        return collectFutures(futures);
+    }
+
+    /** 候选支付资产（现金/银行卡） */
+    private List<Asset> cashAssets(Long userId) {
         List<Asset> cashAssets = new java.util.ArrayList<>();
         for (Asset a : assetMapper.list(userId)) {
             if ("现金".equals(a.getCategory()) || "银行卡".equals(a.getCategory())) {
                 cashAssets.add(a);
             }
         }
+        return cashAssets;
+    }
+
+    /** 候选支付资产名单拼进 prompt，让模型按用户已有资产输出渠道词 */
+    private String assetPrompt(List<Asset> cashAssets) {
         StringBuilder prompt = new StringBuilder();
         if (!cashAssets.isEmpty()) {
             prompt.append("用户已有的支付资产（assetHint 请从中选择最接近的名称）：");
@@ -232,18 +249,40 @@ public class ExpenseService {
             prompt.setLength(prompt.length() - 1);
             prompt.append("。");
         }
-        // 并行识别，按上传顺序汇总结果
+        return prompt.toString();
+    }
+
+    /**
+     * OCR 文本批量解析支出（前端本地 OCR 预提取，AI 只收纯文本，更快更省）。
+     * 一段文本对应一张图，可多笔；解析口径与识图一致，结果同样不落库不扣款。
+     */
+    public List<com.project.person.admin.model.RecognizedExpense> recognizeFromTexts(List<String> texts) {
+        if (texts == null || texts.isEmpty()) {
+            throw BizException.badRequest("没有可识别的文字内容");
+        }
+        if (texts.size() > 9) {
+            throw BizException.badRequest("一次最多识别 9 张图片");
+        }
+        Long userId = UserContext.getUserId();
+        List<Asset> cashAssets = cashAssets(userId);
+        String prompt = assetPrompt(cashAssets);
         List<java.util.concurrent.Future<List<com.project.person.admin.model.RecognizedExpense>>> futures =
                 new java.util.ArrayList<>();
-        for (org.springframework.web.multipart.MultipartFile file : files) {
-            futures.add(recognizePool.submit(() -> recognizeOne(file, prompt.toString(), cashAssets)));
+        for (String text : texts) {
+            futures.add(recognizePool.submit(() -> recognizeOneText(text, prompt, cashAssets)));
         }
+        return collectFutures(futures);
+    }
+
+    /** 汇总并行识别结果：单任务失败以 error 占位不影响其他 */
+    private List<com.project.person.admin.model.RecognizedExpense> collectFutures(
+            List<java.util.concurrent.Future<List<com.project.person.admin.model.RecognizedExpense>>> futures) {
         List<com.project.person.admin.model.RecognizedExpense> results = new java.util.ArrayList<>();
         for (java.util.concurrent.Future<List<com.project.person.admin.model.RecognizedExpense>> future : futures) {
             try {
                 results.addAll(future.get());
             } catch (Exception e) {
-                log.warn("支出图片识别任务失败: {}", e.getMessage());
+                log.warn("支出识别任务失败: {}", e.getMessage());
                 com.project.person.admin.model.RecognizedExpense r =
                         new com.project.person.admin.model.RecognizedExpense();
                 r.setError("识别失败：" + e.getMessage());
@@ -251,6 +290,28 @@ public class ExpenseService {
             }
         }
         return results;
+    }
+
+    /** 单段 OCR 文本识别：文本可能含多笔，模型输出数组时逐笔展开 */
+    private List<com.project.person.admin.model.RecognizedExpense> recognizeOneText(
+            String text, String prompt, List<Asset> cashAssets) {
+        List<com.project.person.admin.model.RecognizedExpense> out = new java.util.ArrayList<>();
+        com.project.person.admin.model.RecognizedExpense first = new com.project.person.admin.model.RecognizedExpense();
+        out.add(first);
+        try {
+            String userPrompt = "以下是支付截图的本地 OCR 提取文本（可能有少量错别字/乱码，请结合上下文理解，"
+                    + "按行区分多笔消费；时间与金额以文本中最合理的一次支付为准）：\n" + text
+                    + (prompt == null || prompt.isEmpty() ? "" : "\n" + prompt);
+            String resp = aiFacade.chat(com.project.person.admin.ai.AiAbility.ANALYZE_EXPEND_BY_PIC,
+                    userPrompt, null);
+            fillRecognized(out, first, resp, cashAssets);
+        } catch (BizException e) {
+            first.setError(e.getMessage());
+        } catch (Exception e) {
+            log.warn("支出文本识别失败: {}", e.getMessage());
+            first.setError("识别失败：" + e.getMessage());
+        }
+        return out;
     }
 
     /** 单图识别：返回 1~N 条记录（图中有多笔支付时逐笔展开），异常兜底为单条 error 占位 */

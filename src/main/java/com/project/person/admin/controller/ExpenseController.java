@@ -67,6 +67,31 @@ public class ExpenseController {
         }
     }
 
+    /**
+     * OCR 文本解析支出：前端本地 OCR 先提取图片文字，再交 AI 纯文本解析（更快、更省）。
+     * 请求体：{"texts": ["第1张图的OCR文本", ...]}（≤9 段）。
+     */
+    @PostMapping("/recognize-text")
+    public Result<java.util.List<com.project.person.admin.model.RecognizedExpense>> recognizeText(
+            @RequestBody java.util.Map<String, Object> body) {
+        try {
+            Object texts = body == null ? null : body.get("texts");
+            java.util.List<String> list = new java.util.ArrayList<>();
+            if (texts instanceof java.util.List) {
+                for (Object t : (java.util.List<?>) texts) {
+                    if (t != null && !t.toString().trim().isEmpty()) {
+                        list.add(t.toString());
+                    }
+                }
+            }
+            return Result.ok(expenseService.recognizeFromTexts(list));
+        } catch (BizException e) {
+            return Result.error(e.getCode(), e.getMessage());
+        } catch (Exception e) {
+            return Result.error(500, e.getMessage());
+        }
+    }
+
     @PutMapping("/{id}")
     public Result<Expense> update(@PathVariable Long id, @RequestBody Expense expense) {
         try {
