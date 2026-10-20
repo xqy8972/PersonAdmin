@@ -1061,7 +1061,11 @@ public class InvestmentService {
         }
         List<Map<String, Object>> data = new ArrayList<>();
         if (!trades.isEmpty()) {
-            BigDecimal fx = StringUtils.hasText(inv.getCode())
+            // 与走势图/台账重算同一口径：逐日取「不晚于当日」的历史汇率，而不是全程用当前汇率，
+            // 否则相邻两天的盈亏差只剩股价变动、丢了汇率微动，与每日走势的「当日盈亏」对不上
+            List<com.project.person.admin.model.ExchangeRate> fxHistory =
+                    marketService.fxHistoryForCodeUpTo(inv.getCode(), LocalDate.now());
+            BigDecimal fallbackFx = StringUtils.hasText(inv.getCode())
                     ? marketService.fxRateForCode(inv.getCode()) : BigDecimal.ONE;
             int ti = 0;
             int shares = 0;
@@ -1085,9 +1089,10 @@ public class InvestmentService {
                         cumNet = cumNet.subtract(t.getAmount() == null ? BigDecimal.ZERO : t.getAmount());
                     }
                 }
+                BigDecimal fxDay = fxForDay(fxHistory, s.getSnapshotDate(), fallbackFx);
                 BigDecimal value;
-                if (s.getPrice() != null && s.getPrice().compareTo(BigDecimal.ZERO) > 0 && fx != null) {
-                    value = s.getPrice().multiply(BigDecimal.valueOf(shares)).multiply(fx)
+                if (s.getPrice() != null && s.getPrice().compareTo(BigDecimal.ZERO) > 0 && fxDay != null) {
+                    value = s.getPrice().multiply(BigDecimal.valueOf(shares)).multiply(fxDay)
                             .setScale(2, RoundingMode.HALF_UP);
                 } else {
                     value = s.getTotalValue() == null ? BigDecimal.ZERO : s.getTotalValue();
