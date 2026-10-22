@@ -1806,7 +1806,7 @@ const WeightPage = {
     <el-dialog v-model="wDialog" :title="(wForm.id ? '编辑' : '记录') + '体重'" width="420px">
       <el-form label-width="80px">
         <el-form-item label="日期"><el-date-picker v-model="wForm.recordDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
-        <el-form-item label="体重(kg)"><el-input-number v-model="wForm.weight" :min="0" :max="500" :precision="1" :step="0.5" style="width:100%" controls-position="right" /></el-form-item>
+        <el-form-item label="体重(kg)"><el-input-number v-model="wForm.weight" :min="0" :max="500" :precision="2" :step="0.05" style="width:100%" controls-position="right" /></el-form-item>
         <el-form-item label="备注"><el-input v-model="wForm.note" placeholder="选填" /></el-form-item>
       </el-form>
       <template #footer>
@@ -1913,7 +1913,7 @@ const MobileHealthPage = {
     <el-dialog v-model="wDialog" :title="(wForm.id ? '编辑' : '记录') + '体重'" width="92%" style="max-width:420px">
       <el-form label-width="64px">
         <el-form-item label="日期"><el-date-picker v-model="wForm.recordDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
-        <el-form-item label="体重"><el-input-number v-model="wForm.weight" :min="0" :max="500" :precision="1" :step="0.5" style="width:100%" controls-position="right" /><span style="margin-left:8px;color:#86868b">kg</span></el-form-item>
+        <el-form-item label="体重"><el-input-number v-model="wForm.weight" :min="0" :max="500" :precision="2" :step="0.05" style="width:100%" controls-position="right" /><span style="margin-left:8px;color:#86868b">kg</span></el-form-item>
         <el-form-item label="备注"><el-input v-model="wForm.note" placeholder="选填" /></el-form-item>
       </el-form>
       <template #footer>
@@ -3911,8 +3911,8 @@ const MobileProfilePage = {
       <div style="font-size:18px;font-weight:600;color:#1d1d1f;margin-top:12px">{{ nickname }}</div>
       <div style="font-size:12px;color:#86868b;margin-top:4px">账号：{{ nickname }}</div>
       <div style="padding:22px 0 10px">
-        <el-button style="width:100%;margin-bottom:12px" @click="openPwd">修改密码</el-button>
-        <el-button type="danger" plain style="width:100%" @click="logout">退出登录</el-button>
+        <el-button style="width:100%;margin:0 0 12px;display:block" @click="openPwd">修改密码</el-button>
+        <el-button type="danger" plain style="width:100%;margin:0;display:block" @click="logout">退出登录</el-button>
       </div>
     </div>
     <el-dialog v-model="pwdDlg" title="修改密码" width="88%" style="max-width:360px" align-center>
