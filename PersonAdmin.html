@@ -3396,8 +3396,14 @@ const MobileFinancePage = {
       });
     /* 投资列表同样走缓存：行情变化靠盘中 10s 轮询强制刷新，用户买卖靠 pm-data-changed 清缓存，
        普通切页不再重复请求 */
+    let investsSig = '';
     const loadInvests = (force) => loadCached('investment:list', () => apiGet('/investment/list').catch(() => []), force)
-      .then(inv => { invests.value = (Array.isArray(inv) ? inv : []).filter(i => (Number(i.currentValue) || 0) > 0); });
+      .then(inv => {
+        const next = (Array.isArray(inv) ? inv : []).filter(i => (Number(i.currentValue) || 0) > 0);
+        /* 数据没变就不重赋值：盘中轮询时卡片保持纹丝不动，只有数字真变了才静默更新 */
+        const sig = JSON.stringify(next.map(i => [i.id, i.currentValue, i.price, i.dayProfit, i.shares]));
+        if (sig !== investsSig) { investsSig = sig; invests.value = next; }
+      });
     /* 总市值以投资列表实时计算（列表按最新行情折算），不用看板接口的库表汇总值——两者会不一致 */
     const investTotal = computed(() => invests.value.reduce((s, r) => s + (Number(r.currentValue) || 0), 0));
     /* 有缓存时不再转圈（转圈只出现在真实请求/下拉刷新时） */
