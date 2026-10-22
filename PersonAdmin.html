@@ -3394,16 +3394,22 @@ const MobileFinancePage = {
         assetTotal.value = d.assetTotal || 0;
         recent.value = (d.recent || []).slice(0, 8); // 首页最多展示 8 条
       });
-    const loadInvests = () => apiGet('/investment/list').catch(() => [])
+    /* 投资列表同样走缓存：行情变化靠盘中 10s 轮询强制刷新，用户买卖靠 pm-data-changed 清缓存，
+       普通切页不再重复请求 */
+    const loadInvests = (force) => loadCached('investment:list', () => apiGet('/investment/list').catch(() => []), force)
       .then(inv => { invests.value = (Array.isArray(inv) ? inv : []).filter(i => (Number(i.currentValue) || 0) > 0); });
     /* 总市值以投资列表实时计算（列表按最新行情折算），不用看板接口的库表汇总值——两者会不一致 */
     const investTotal = computed(() => invests.value.reduce((s, r) => s + (Number(r.currentValue) || 0), 0));
-    const load = (force) => { loading.value = true; return Promise.all([loadDashboard(force), loadInvests()]).finally(() => { loading.value = false; }); };
+    /* 有缓存时不再转圈（转圈只出现在真实请求/下拉刷新时） */
+    const load = (force) => {
+      loading.value = !!(force || !pageCache.has('stats:dashboard'));
+      return Promise.all([loadDashboard(force), loadInvests(force)]).finally(() => { loading.value = false; });
+    };
     onMounted(() => { load(); window.addEventListener('pm-data-changed', load); });
     onBeforeUnmount(() => window.removeEventListener('pm-data-changed', load));
     /* 盘中每 10s 轮询投资列表：最新价/市值/盈亏实时变动（后端行情缓存同步刷新，非库表取值），盘后自动停止 */
     const quoteTimer = setInterval(() => {
-      if (isTradeWindow() && document.visibilityState === 'visible') loadInvests();
+      if (isTradeWindow() && document.visibilityState === 'visible') loadInvests(true);
     }, 10000);
     onBeforeUnmount(() => clearInterval(quoteTimer));
     const go = index => { location.hash = index; };
