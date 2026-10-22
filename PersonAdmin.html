@@ -859,17 +859,36 @@ const CalorieRecognize = {
       } catch (err) { ElMessage.error('识别请求失败：' + err.message); }
       finally { analyzing.value = false; stage.value = ''; }
     };
-    /* 每轮 AI 返回的都是修正后的全量列表：整体替换 + 把追问（配料表/营养成分表需补充份量）追加进对话区 */
+    /* 每轮 AI 返回的都是修正后的全量列表：整体替换 + 把追问（配料表/营养成分表需补充份量）追加进对话区。
+       与上一轮按「食物|重量|热量」对比，变动项标红；记录千卡/克比，改重量时热量联动 */
     const acceptResult = data => {
       if (!data) return;
+      const prev = items.value;
+      const hadPrev = prev.length > 0;
+      const prevSet = new Set(prev.filter(r => !r.error)
+        .map(r => (r.food || '') + '|' + (r.amount ?? '') + '|' + (r.calories ?? '')));
       convId.value = data.convId || convId.value;
-      const arr = (data.items || []).map(r => ({ _key: 'f' + (++keySeq), ...r }));
+      const arr = (data.items || []).map(r => {
+        const it = { _key: 'f' + (++keySeq), ...r };
+        it._ratio = (Number(it.amount) > 0 && Number(it.calories) > 0)
+          ? Number(it.calories) / Number(it.amount) : null;
+        it._changed = hadPrev && !prevSet.has(
+          (it.food || '') + '|' + (it.amount ?? '') + '|' + (it.calories ?? ''));
+        return it;
+      });
       items.value = arr;
       const q = arr.find(r => r && r.question);
       if (q) chatLog.value.push({ role: 'ai', text: q.question });
       const ok = arr.filter(r => !r.error).length;
       if (ok) ElMessage.success(`本轮识别 ${ok} 种食物，可修改后确认`);
       else ElMessage.warning('本轮未识别出有效食物，可换更清晰的图片或用文字描述');
+    };
+    /* 改重量→按记录的千卡/克比重算热量；手动改热量→更新比重 */
+    const onAmountChange = r => {
+      if (Number(r.amount) > 0 && r._ratio) r.calories = Math.max(0, Math.round(Number(r.amount) * r._ratio));
+    };
+    const onCalChange = r => {
+      if (Number(r.amount) > 0 && Number(r.calories) > 0) r._ratio = Number(r.calories) / Number(r.amount);
     };
     /* 对话修正：无会话时首轮文字即开启纯文字会话 */
     const sendChat = async () => {
@@ -911,28 +930,32 @@ const CalorieRecognize = {
       finally { saving.value = false; }
     };
     return { visible, items, chatLog, analyzing, stage, chatting, chatText, mealType, recordDate,
-             saving, open, pickFiles, sendChat, validItems, totalCal, removeItem, confirmSave };
+             saving, open, pickFiles, sendChat, validItems, totalCal, removeItem, confirmSave,
+             onAmountChange, onCalChange };
   },
   template: `
-    <el-button type="success" plain @click="open">拍照识别热量</el-button>
-    <el-dialog v-model="visible" title="AI 识别饮食（拍照或描述，确认后才记账）" width="92%" style="max-width:560px" top="5vh">
+    <el-button type="success" plain @click="open">AI识别热量</el-button>
+    <el-dialog v-model="visible" title="AI 识别热量" width="92%" style="max-width:560px" top="5vh">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <el-button type="primary" plain size="small" :loading="analyzing" @click="$refs.fileInput.click()">
           {{ analyzing ? (stage === 'ocr' ? '本地提取文字中…' : 'AI 识别中…') : '拍照/选图（可多选）' }}
         </el-button>
         <input ref="fileInput" type="file" accept="image/*" multiple style="display:none" @change="pickFiles" />
-        <span style="color:#909399;font-size:12px">支持食物照片、配料表、营养成分表；配料表会追问食用份量；也可直接在下方用文字描述</span>
+        <span style="color:#909399;font-size:12px">支持食物照片、配料表、营养成分表，也可直接在下方用文字描述</span>
       </div>
       <div v-if="items.length" style="border:1px solid #ebeef5;border-radius:8px;padding:8px 10px;margin-bottom:10px">
-        <div v-for="r in items" :key="r._key" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+        <div v-for="r in items" :key="r._key"
+             style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap"
+             :style="r._changed ? { background: '#fef0f0', borderRadius: '6px', padding: '2px 4px' } : {}">
           <template v-if="!r.error">
             <el-input v-model="r.food" size="small" placeholder="食物" style="flex:1;min-width:110px" />
             <el-input-number v-model="r.amount" size="small" :min="0" :precision="0" placeholder="克"
-                             style="width:88px" controls-position="right" />
+                             style="width:88px" controls-position="right" @change="onAmountChange(r)" />
             <span style="color:#909399;font-size:12px">g</span>
             <el-input-number v-model="r.calories" size="small" :min="0" :precision="0" placeholder="千卡"
-                             style="width:96px" controls-position="right" />
+                             style="width:96px" controls-position="right" @change="onCalChange(r)" />
             <span style="color:#909399;font-size:12px">千卡</span>
+            <el-tag v-if="r._changed" type="danger" size="small" effect="plain">变动</el-tag>
             <el-button link type="danger" size="small" @click="removeItem(r)">移除</el-button>
           </template>
           <el-tag v-else type="danger" size="small">{{ r.error }}</el-tag>
@@ -953,9 +976,11 @@ const CalorieRecognize = {
         <div v-if="!chatLog.length" style="color:#c0c4cc;font-size:12px;text-align:center">识别不准？用一句话告诉 AI，如“那不是米饭，是面条”“我吃的是 300 克”</div>
       </div>
       <div style="display:flex;gap:8px">
-        <el-input v-model="chatText" size="small" placeholder="向 AI 补充/修正，如：再加一杯豆浆"
+        <el-input v-model="chatText" size="small" placeholder="向AI描述/修正/补充"
                   @keyup.enter="sendChat" :disabled="chatting" />
-        <el-button type="primary" size="small" :loading="chatting" :disabled="!chatText.trim()" @click="sendChat">发送</el-button>
+        <el-button type="primary" size="small" :loading="chatting" :disabled="!chatText.trim() || chatting" @click="sendChat">
+          {{ chatting ? 'AI 思考中…' : '发送' }}
+        </el-button>
       </div>
       <template #footer>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
