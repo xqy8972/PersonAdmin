@@ -1973,7 +1973,7 @@ const WeightPage = {
     onMounted(() => { loadW(); loadD(); });
     return { wList, wDialog, wForm, wOpen, wSave, wDel,
              dList, dDialog, dForm, dOpen, dSave, dDel,
-             filterDate, dietList, latest, mealTagType, fmt };
+             filterDate, dietList, latest, mealTagType, fmt, foodLines };
   },
   template: `<div>
     <WeightTrendChart>
@@ -2099,7 +2099,7 @@ const MobileHealthPage = {
     onBeforeUnmount(() => window.removeEventListener('pm-data-changed', refreshAll));
     return { wList, wDialog, wForm, wOpen, wSave, refreshAll, pullReload, loadingW, loadingD,
              dList, dDialog, dForm, dOpen, dSave, dDel,
-             filterDate, latest, dayWheelVisible, onDay, mealTagType, fmt };
+             filterDate, latest, dayWheelVisible, onDay, mealTagType, fmt, foodLines };
   },
   template: `<PullRefresh :on-refresh="pullReload"><div class="m-wrap">
     <div class="m-hero" style="background:linear-gradient(135deg,#30b0c7 0%,#1f8fb5 55%,#1a7ba0 100%);box-shadow:0 10px 26px rgba(31,143,181,.35)">
