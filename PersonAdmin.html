@@ -873,7 +873,7 @@ const InvestmentPageRaw = makeCrudPage({
       <el-table-column label="最新价" width="132">
         <template #default="{ row }">
           <template v-if="isShareType(row.type)">
-            <span v-if="row.price != null" class="red" style="font-weight:600">{{ fmt(row.price) }}<span style="color:#909399;font-size:12px;font-weight:400"> {{ (row.code || '').startsWith('hk') ? '港币' : '元' }}</span></span>
+            <span v-if="row.price != null" class="green" style="font-weight:600">{{ fmt(row.price) }}<span style="color:#909399;font-size:12px;font-weight:400"> {{ (row.code || '').startsWith('hk') ? '港币' : '元' }}</span></span>
             <span v-else style="color:#c0c4cc">—</span>
             <span v-if="row.live" class="live-badge">盘中</span>
           </template>
@@ -941,7 +941,7 @@ const InvestmentPageRaw = makeCrudPage({
           </div>
         </div>
         <div class="inv-card-grid">
-          <div><label>最新价</label><b v-if="isShareType(row.type) && row.price != null" class="red">{{ fmt(row.price) }}{{ (row.code || '').startsWith('hk') ? ' 港币' : ' 元' }}</b><b v-else style="color:#c0c4cc">—</b></div>
+          <div><label>最新价</label><b v-if="isShareType(row.type) && row.price != null" class="green">{{ fmt(row.price) }}{{ (row.code || '').startsWith('hk') ? ' 港币' : ' 元' }}</b><b v-else style="color:#c0c4cc">—</b></div>
           <div><label>成本价</label><b v-if="isShareType(row.type) && row.costPrice != null">{{ fmt(row.costPrice) }}</b><b v-else style="color:#c0c4cc">—</b></div>
           <div><label>投入金额</label><b>¥ {{ fmt(row.amount) }}</b></div>
           <div><label>最新盈亏</label><b v-if="row.dayProfit == null" style="color:#c0c4cc">—</b><b v-else :class="row.dayProfit >= 0 ? 'green' : 'red'">{{ (row.dayProfit >= 0 ? '+' : '') + fmt(row.dayProfit) }}</b></div>
@@ -2113,7 +2113,7 @@ const DashboardPage = {
             <el-tag size="small" :type="r.kind === '收入' ? 'danger' : 'success'" effect="plain">{{ r.kind }}</el-tag>
             <span class="recent-cat">{{ r.category }}</span>
             <span style="flex:1"></span>
-            <span :class="r.kind === '收入' ? 'red' : 'green'" style="font-weight:600">{{ (r.kind === '收入' ? '+' : '-') + fmt(r.amount) }}</span>
+            <span :class="r.kind === '收入' ? 'green' : 'red'" style="font-weight:600">{{ (r.kind === '收入' ? '+' : '-') + fmt(r.amount) }}</span>
           </div>
           <div v-if="!recent.length" class="placeholder">暂无记录</div>
         </el-card>
@@ -3463,8 +3463,8 @@ const MobileFinancePage = {
         <span class="m-sec-more" @click="go('#/m/month-detail')">详情<el-icon :size="12"><ArrowRight /></el-icon></span>
       </div>
       <div class="m-kv">
-        <div class="m-kv-item"><span class="m-k">收入</span><b class="red" style="font-size:18px">+¥ {{ fmt(monthIncome) }}</b></div>
-        <div class="m-kv-item"><span class="m-k">支出</span><b class="green" style="font-size:18px">-¥ {{ fmt(monthExpense) }}</b></div>
+        <div class="m-kv-item"><span class="m-k">收入</span><b class="green" style="font-size:18px">+¥ {{ fmt(monthIncome) }}</b></div>
+        <div class="m-kv-item"><span class="m-k">支出</span><b class="red" style="font-size:18px">-¥ {{ fmt(monthExpense) }}</b></div>
       </div>
       <div style="display:flex;gap:10px;margin-top:14px;padding-bottom:6px">
         <el-button style="flex:1" @click="openIncome">记一笔收入</el-button>
@@ -3474,7 +3474,7 @@ const MobileFinancePage = {
         <span class="m-line-sub" style="width:82px;flex-shrink:0">{{ r.recordDate }}</span>
         <el-tag size="small" :type="r.kind === '收入' ? 'danger' : 'success'" effect="plain">{{ r.kind }}</el-tag>
         <span class="m-line-main m-line-name">{{ r.category }}</span>
-        <b :class="r.kind === '收入' ? 'red' : 'green'" style="font-variant-numeric:tabular-nums">{{ (r.kind === '收入' ? '+' : '-') + fmt(r.amount) }}</b>
+        <b :class="r.kind === '收入' ? 'green' : 'red'" style="font-variant-numeric:tabular-nums">{{ (r.kind === '收入' ? '+' : '-') + fmt(r.amount) }}</b>
       </div>
       <div v-if="!recent.length" class="m-empty">本月暂无记录</div>
     </div>
@@ -3866,10 +3866,10 @@ const MobileMonthPage = {
           <div class="m-line-name">{{ r.category }}</div>
           <div class="m-line-sub">{{ r.recordDate }}<template v-if="r.assetName"> · {{ r.assetName }}</template><template v-if="r.remark"> · {{ r.remark }}</template></div>
         </div>
-        <b :class="tab === 'income' ? 'red' : 'green'" style="font-variant-numeric:tabular-nums">{{ (tab === 'income' ? '+' : '-') + fmt(r.amount) }}</b>
+        <b :class="tab === 'income' ? 'green' : 'red'" style="font-variant-numeric:tabular-nums">{{ (tab === 'income' ? '+' : '-') + fmt(r.amount) }}</b>
       </div>
       <div v-if="!loading && !list.length" class="m-empty">该月暂无{{ tab === 'income' ? '收入' : '支出' }}记录</div>
-      <div class="m-month-total">合计：<b :class="tab === 'income' ? 'red' : 'green'">{{ (tab === 'income' ? '+' : '-') + fmt(total) }}</b></div>
+      <div class="m-month-total">合计：<b :class="tab === 'income' ? 'green' : 'red'">{{ (tab === 'income' ? '+' : '-') + fmt(total) }}</b></div>
       <MobileCatPie :kind="tab" :month="month" />
       <div style="display:flex;gap:10px;padding:12px 0 8px">
         <el-button style="flex:1" @click="incomeVisible = true">记一笔收入</el-button>
