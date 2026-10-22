@@ -183,6 +183,9 @@ document.addEventListener('dblclick', e => e.preventDefault(), { passive: false 
   .m-pull-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   .m-pull-ind { display: flex; align-items: flex-end; justify-content: center; overflow: hidden; height: 0; transition: height .18s ease-out; color: #86868b; font-size: 12px; padding-bottom: 6px; }
   .m-pull-spin { width: 18px; height: 18px; border: 2px solid rgba(47,111,206,.25); border-top-color: #2f6fce; border-radius: 50%; animation: m-pull-rot .7s linear infinite; margin-bottom: 2px; }
+  .m-quick-btn { flex: 1; text-align: center; padding: 10px 0; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; user-select: none; }
+  .m-quick-in { color: #f56c6c; background: rgba(245, 108, 108, .12); }
+  .m-quick-out { color: #529b2e; background: rgba(103, 194, 58, .14); }
   @keyframes m-pull-rot { to { transform: rotate(360deg); } }
   .m-hero { background: linear-gradient(135deg, #4a90d9 0%, #2f6fce 55%, #2a5cb8 100%); border-radius: 18px; padding: 22px 20px 16px; color: #fff; box-shadow: 0 10px 26px rgba(47, 111, 206, .35); margin-bottom: 14px; }
   .m-hero-label { font-size: 13px; opacity: .82; }
@@ -3467,8 +3470,8 @@ const MobileFinancePage = {
         <div class="m-kv-item"><span class="m-k">支出</span><b class="red" style="font-size:18px">-¥ {{ fmt(monthExpense) }}</b></div>
       </div>
       <div style="display:flex;gap:10px;margin-top:14px;padding-bottom:6px">
-        <el-button style="flex:1" @click="openIncome">记一笔收入</el-button>
-        <el-button style="flex:1" type="danger" plain @click="openExpense">记一笔支出</el-button>
+        <div class="m-quick-btn m-quick-in" @click="openIncome">记一笔收入</div>
+        <div class="m-quick-btn m-quick-out" @click="openExpense">记一笔支出</div>
       </div>
       <div class="m-line" v-for="(r, i) in recent" :key="i">
         <span class="m-line-sub" style="width:82px;flex-shrink:0">{{ r.recordDate }}</span>
@@ -3872,8 +3875,8 @@ const MobileMonthPage = {
       <div class="m-month-total">合计：<b :class="tab === 'income' ? 'green' : 'red'">{{ (tab === 'income' ? '+' : '-') + fmt(total) }}</b></div>
       <MobileCatPie :kind="tab" :month="month" />
       <div style="display:flex;gap:10px;padding:12px 0 8px">
-        <el-button style="flex:1" @click="incomeVisible = true">记一笔收入</el-button>
-        <el-button style="flex:1" type="danger" plain @click="expenseVisible = true">记一笔支出</el-button>
+        <div class="m-quick-btn m-quick-in" @click="incomeVisible = true">记一笔收入</div>
+        <div class="m-quick-btn m-quick-out" @click="expenseVisible = true">记一笔支出</div>
       </div>
     </div>
     <MonthWheel v-if="monthWheelVisible" :model-value="month" @confirm="onMonth" @cancel="monthWheelVisible = false" />
