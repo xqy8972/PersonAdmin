@@ -1,0 +1,306 @@
+package com.project.person.admin.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.project.person.admin.ai.AiAbility;
+import com.project.person.admin.ai.AiChatTurn;
+import com.project.person.admin.ai.AiFacade;
+import com.project.person.admin.cache.CacheFacade;
+import com.project.person.admin.common.BizException;
+import com.project.person.admin.common.ImageCompactor;
+import com.project.person.admin.common.UserContext;
+import com.project.person.admin.model.RecognizedFood;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * AI 识别饮食（卡路里）：拍照（食物/配料表/营养成分表）或文字描述 → 识别食物清单，
+ * 之后用户可用自然语言多轮修正（“那不是米饭，是面条”）。
+ *
+ * <p>上下文隔离：会话历史按 userId+convId 存缓存（key=chat:cal:{userId}:{convId}），
+ * 绝不跨用户共享；图片不落盘只存于缓存会话中用于修正轮回看；读取时超过 2 小时视为过期。
+ * 缓存只通过 CacheFacade 访问，换 Redis 实现时业务零改动。
+ */
+@Service
+public class CalorieRecognizeService {
+
+    private static final Logger log = LoggerFactory.getLogger(CalorieRecognizeService.class);
+    private static final ObjectMapper OM = new ObjectMapper();
+
+    private static final String KEY_PREFIX = "chat:cal:";
+    /** 会话空闲 2 小时后丢弃（避免缓存无限增长） */
+    private static final long SESSION_TTL_MS = 2 * 60 * 60 * 1000L;
+    /** 单会话最多保留的轮次数（user+assistant 算一轮），防止长对话无限膨胀 */
+    private static final int MAX_TURNS_KEPT = 12;
+
+    @Autowired
+    private AiFacade aiFacade;
+
+    @Autowired
+    private CacheFacade cacheFacade;
+
+    /** 识别返回：会话 ID + 食物清单 */
+    public static class RecognizeResult {
+        private String convId;
+        private List<RecognizedFood> items;
+
+        public RecognizeResult(String convId, List<RecognizedFood> items) {
+            this.convId = convId;
+            this.items = items;
+        }
+
+        public String getConvId() {
+            return convId;
+        }
+
+        public List<RecognizedFood> getItems() {
+            return items;
+        }
+    }
+
+    /** 缓存中的会话状态：最近活跃时间 + 对话轮次（含图片，用于修正轮回看） */
+    private static class ConvState {
+        long lastActive;
+        List<AiChatTurn> turns = new ArrayList<>();
+
+        ConvState() {
+            this.lastActive = System.currentTimeMillis();
+        }
+    }
+
+    /**
+     * 图片识别（≤9 张，单请求多图：同餐多道菜一次识别，延迟不随并行任务叠加）。
+     * 返回会话 ID 与识别结果；不落库，用户确认修正后再走正常创建。
+     */
+    public RecognizeResult recognize(MultipartFile[] files) {
+        if (files == null || files.length == 0) {
+            throw BizException.badRequest("请选择要识别的图片");
+        }
+        if (files.length > 9) {
+            throw BizException.badRequest("一次最多识别 9 张图片");
+        }
+        List<String> images = new ArrayList<>();
+        try {
+            for (MultipartFile file : files) {
+                if (file.isEmpty()) {
+                    continue;
+                }
+                /* 先压缩再 base64：手机原图单张 5~12MB，并发转 base64 峰值可达 400MB+，
+                   512M 堆直接 OOM。统一压到长边 1280 的 JPEG（通常 <300KB）。 */
+                byte[] compact = ImageCompactor.compact(file.getBytes());
+                images.add("data:image/jpeg;base64," + Base64.getEncoder().encodeToString(compact));
+            }
+        } catch (Exception e) {
+            throw BizException.badRequest("读取图片失败：" + e.getMessage());
+        }
+        if (images.isEmpty()) {
+            throw BizException.badRequest("图片内容为空");
+        }
+        String prompt = images.size() > 1
+                ? "以下是 " + images.size() + " 张食物/营养成分相关图片（可能是同一餐的不同食物，也可能是配料表/营养成分表），请逐一识别："
+                : "请识别这张图片中的食物或营养成分信息：";
+        return runFirstTurn(prompt, images);
+    }
+
+    /**
+     * OCR 文本识别：前端本地 OCR 预提取（更快更省），一段文本对应一张图。
+     */
+    public RecognizeResult recognizeFromTexts(List<String> texts) {
+        if (texts == null || texts.isEmpty()) {
+            throw BizException.badRequest("没有可识别的文字内容");
+        }
+        if (texts.size() > 9) {
+            throw BizException.badRequest("一次最多识别 9 张图片");
+        }
+        StringBuilder sb = new StringBuilder("以下是从 ").append(texts.size())
+                .append(" 张食物/营养成分图片中本地提取的 OCR 文本（可能有少量错别字/乱码，请结合上下文理解）：");
+        for (int i = 0; i < texts.size(); i++) {
+            sb.append("\n--- 第 ").append(i + 1).append(" 张 ---\n").append(texts.get(i));
+        }
+        return runFirstTurn(sb.toString(), null);
+    }
+
+    /**
+     * 文字描述直接作为首轮（不走图片），如“午饭吃了一碗牛肉面加一个蛋”。
+     */
+    public RecognizeResult recognizeFromText(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            throw BizException.badRequest("请描述你吃的食物");
+        }
+        return runFirstTurn("我用文字描述我的饮食，请识别食物清单：\n" + text.trim(), null);
+    }
+
+    /**
+     * 对话修正：把用户消息追加进会话历史，多轮调用 AI，返回修正后的全量结果。
+     * convId 为 null/空时视为以纯文字开启新会话。
+     */
+    public RecognizeResult chat(String convId, String message) {
+        if (message == null || message.trim().isEmpty()) {
+            throw BizException.badRequest("请输入要修改/补充的内容");
+        }
+        Long userId = UserContext.getUserId();
+        ConvState state;
+        String id = convId;
+        if (id == null || id.trim().isEmpty()) {
+            id = UUID.randomUUID().toString().replace("-", "");
+            state = new ConvState();
+        } else {
+            state = loadState(userId, id);
+        }
+        state.turns.add(AiChatTurn.user(message.trim(), null));
+        String resp;
+        try {
+            resp = aiFacade.chat(AiAbility.ANALYZE_CALORIE_BY_PIC, state.turns);
+        } catch (Exception e) {
+            // 失败的轮次不进历史，避免污染上下文
+            state.turns.remove(state.turns.size() - 1);
+            throw e;
+        }
+        List<RecognizedFood> items = parseItems(resp);
+        state.turns.add(AiChatTurn.assistant(resp));
+        trimTurns(state);
+        state.lastActive = System.currentTimeMillis();
+        cacheFacade.put(key(userId, id), state);
+        log.info("饮食识别修正 conv={} userId={} 返回 {} 种食物", id, userId, items.size());
+        return new RecognizeResult(id, items);
+    }
+
+    /** 首轮：建立新会话，user 轮（图片+文字）→ AI → assistant 轮入库 */
+    private RecognizeResult runFirstTurn(String prompt, List<String> images) {
+        Long userId = UserContext.getUserId();
+        String id = UUID.randomUUID().toString().replace("-", "");
+        ConvState state = new ConvState();
+        state.turns.add(AiChatTurn.user(prompt, images));
+        String resp;
+        try {
+            resp = aiFacade.chat(AiAbility.ANALYZE_CALORIE_BY_PIC, state.turns);
+        } catch (Exception e) {
+            state.turns.remove(state.turns.size() - 1);
+            throw e;
+        }
+        List<RecognizedFood> items = parseItems(resp);
+        state.turns.add(AiChatTurn.assistant(resp));
+        cacheFacade.put(key(userId, id), state);
+        log.info("饮食识别首轮 conv={} userId={} images={} 返回 {} 种食物", id, userId,
+                images == null ? 0 : images.size(), items.size());
+        return new RecognizeResult(id, items);
+    }
+
+    /** 读取并校验会话归属：key 带 userId，拿到别人的会话直接视为不存在，天然防越权 */
+    private ConvState loadState(Long userId, String convId) {
+        Object obj = cacheFacade.get(key(userId, convId));
+        if (!(obj instanceof ConvState)) {
+            throw BizException.badRequest("会话不存在或已过期（超过 2 小时），请重新拍照/描述");
+        }
+        ConvState state = (ConvState) obj;
+        if (System.currentTimeMillis() - state.lastActive > SESSION_TTL_MS) {
+            cacheFacade.remove(key(userId, convId));
+            throw BizException.badRequest("会话已过期（超过 2 小时），请重新拍照/描述");
+        }
+        return state;
+    }
+
+    private void trimTurns(ConvState state) {
+        // 始终保留首轮（含图片），裁掉更早的修正轮
+        int maxMessages = MAX_TURNS_KEPT * 2;
+        if (state.turns.size() > maxMessages) {
+            state.turns = new ArrayList<>(state.turns.subList(
+                    state.turns.size() - maxMessages, state.turns.size()));
+            if (!"user".equals(state.turns.get(0).getRole())) {
+                state.turns.remove(0);
+            }
+        }
+    }
+
+    private String key(Long userId, String convId) {
+        return KEY_PREFIX + userId + ":" + convId;
+    }
+
+    /**
+     * 解析模型输出（容错提取首个 JSON 块，对象或数组均可）：
+     * 数组→逐条；对象→单条（error 或 question）。修正轮要求模型输出全量数组，这里同样兼容。
+     */
+    private List<RecognizedFood> parseItems(String resp) {
+        List<RecognizedFood> out = new ArrayList<>();
+        if (resp == null || resp.trim().isEmpty()) {
+            RecognizedFood r = new RecognizedFood();
+            r.setError("AI 未返回结果");
+            out.add(r);
+            return out;
+        }
+        String json = resp;
+        int objStart = resp.indexOf('{');
+        int arrStart = resp.indexOf('[');
+        int start = (objStart >= 0 && arrStart >= 0) ? Math.min(objStart, arrStart)
+                : Math.max(objStart, arrStart);
+        if (start >= 0) {
+            char close = resp.charAt(start) == '{' ? '}' : ']';
+            int end = resp.lastIndexOf(close);
+            if (end > start) {
+                json = resp.substring(start, end + 1);
+            }
+        }
+        try {
+            JsonNode node = OM.readTree(json);
+            if (node.isArray()) {
+                if (node.size() == 0) {
+                    RecognizedFood r = new RecognizedFood();
+                    r.setError("未识别出食物");
+                    out.add(r);
+                    return out;
+                }
+                for (JsonNode item : node) {
+                    out.add(fillOne(item));
+                }
+            } else {
+                out.add(fillOne(node));
+            }
+        } catch (Exception e) {
+            RecognizedFood r = new RecognizedFood();
+            r.setError("结果解析失败：" + e.getMessage());
+            out.add(r);
+        }
+        return out;
+    }
+
+    private RecognizedFood fillOne(JsonNode node) {
+        RecognizedFood r = new RecognizedFood();
+        if (node.hasNonNull("error")) {
+            r.setError(node.path("error").asText());
+            return r;
+        }
+        r.setFood(node.path("food").isNull() ? "" : node.path("food").asText("").trim());
+        r.setAmount(node.hasNonNull("amount") && node.path("amount").isNumber()
+                ? node.path("amount").asDouble() : null);
+        r.setCalories(node.hasNonNull("calories") && node.path("calories").isNumber()
+                ? (int) Math.round(node.path("calories").asDouble()) : null);
+        r.setMealType(node.path("mealType").isNull() ? null : node.path("mealType").asText(null));
+        boolean need = node.hasNonNull("question") && !node.path("question").isNull()
+                && !node.path("question").asText().isEmpty();
+        r.setNeedUserInput(need || Boolean.TRUE.equals(
+                node.hasNonNull("needUserInput") ? node.path("needUserInput").asBoolean() : null));
+        r.setQuestion(need ? node.path("question").asText() : null);
+        return r;
+    }
+
+    /** 供 Controller/前端展示用：空结果判断 */
+    public static boolean allFailed(List<RecognizedFood> items) {
+        if (items == null || items.isEmpty()) {
+            return true;
+        }
+        for (RecognizedFood f : items) {
+            if (f.getError() == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+}

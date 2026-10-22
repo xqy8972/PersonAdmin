@@ -781,6 +781,197 @@ const ExpenseRecognize = {
     </el-dialog>`
 };
 
+/* ---------------- AI 识别饮食（卡路里）：拍照（食物/配料表/营养成分表）或文字描述，
+   识别结果可手改，底部对话框可让 AI 修正（如“那不是米饭，是面条”）；
+   确认后合并为一条饮食记录落库：food 格式「食物 重量g 热量千卡」逗号分隔，展示端换行 ---------------- */
+const CalorieRecognize = {
+  setup() {
+    const visible = ref(false);
+    const convId = ref('');
+    const items = ref([]);
+    const chatLog = ref([]); // {role:'user'|'ai', text}
+    const analyzing = ref(false);
+    const stage = ref(''); // 'ocr' 本地文字提取 / 'ai' AI 解析
+    const chatting = ref(false);
+    const chatText = ref('');
+    const mealType = ref('午餐');
+    const recordDate = ref(todayStr());
+    const saving = ref(false);
+    let keySeq = 0;
+    const open = () => {
+      visible.value = true; convId.value = ''; items.value = []; chatLog.value = [];
+      chatText.value = ''; mealType.value = '午餐'; recordDate.value = todayStr();
+    };
+    /* 本地 OCR 预提取（tesseract.js 懒加载；chi_sim+eng）：先出文本再交 AI，更快；
+       worker 只建一次复用；OCR 不可用时回退图片直传 */
+    let ocrWorker = null;
+    let ocrLoading = false;
+    const ocrQueue = [];
+    const ensureOcrWorker = () => {
+      if (ocrWorker) return Promise.resolve(ocrWorker);
+      if (ocrLoading) return new Promise(res => ocrQueue.push(res));
+      ocrLoading = true;
+      return import('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.esm.min.js')
+        .then(mod => mod.createWorker('chi_sim+eng'))
+        .then(w => { ocrWorker = w; ocrQueue.splice(0).forEach(res => res(w)); return w; })
+        .catch(e => { ocrLoading = false; throw e; });
+    };
+    const pickFiles = async e => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (!files.length) return;
+      if (files.length > 9) { ElMessage.warning('一次最多 9 张'); return; }
+      await analyze(files);
+    };
+    const analyze = async files => {
+      analyzing.value = true;
+      stage.value = 'ocr';
+      try {
+        try {
+          const worker = await ensureOcrWorker();
+          const texts = (await Promise.all(files.map(f =>
+            worker.recognize(f).then(r => ((r.data && r.data.text) || '').trim())))).filter(Boolean);
+          if (texts.length) {
+            stage.value = 'ai';
+            const resp = await fetch(API_BASE + '/diet/recognize-text', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('token') },
+              body: JSON.stringify({ texts })
+            });
+            const j = await resp.json();
+            if (j.code !== 200) { ElMessage.error(j.msg || '识别失败'); return; }
+            acceptResult(j.data);
+            return;
+          }
+          ElMessage.warning('本地 OCR 未提取到文字，已改为直接上传图片识别');
+        } catch (e) { console.warn('OCR 不可用，回退为图片直传', e); }
+        const fd = new FormData();
+        files.forEach(f => fd.append('files', f));
+        stage.value = 'ai';
+        const resp = await fetch(API_BASE + '/diet/recognize', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + store.get('token') },
+          body: fd
+        });
+        const j = await resp.json();
+        if (j.code !== 200) { ElMessage.error(j.msg || '识别失败'); return; }
+        acceptResult(j.data);
+      } catch (err) { ElMessage.error('识别请求失败：' + err.message); }
+      finally { analyzing.value = false; stage.value = ''; }
+    };
+    /* 每轮 AI 返回的都是修正后的全量列表：整体替换 + 把追问（配料表/营养成分表需补充份量）追加进对话区 */
+    const acceptResult = data => {
+      if (!data) return;
+      convId.value = data.convId || convId.value;
+      const arr = (data.items || []).map(r => ({ _key: 'f' + (++keySeq), ...r }));
+      items.value = arr;
+      const q = arr.find(r => r && r.question);
+      if (q) chatLog.value.push({ role: 'ai', text: q.question });
+      const ok = arr.filter(r => !r.error).length;
+      if (ok) ElMessage.success(`本轮识别 ${ok} 种食物，可修改后确认`);
+      else ElMessage.warning('本轮未识别出有效食物，可换更清晰的图片或用文字描述');
+    };
+    /* 对话修正：无会话时首轮文字即开启纯文字会话 */
+    const sendChat = async () => {
+      const msg = (chatText.value || '').trim();
+      if (!msg) return;
+      chatLog.value.push({ role: 'user', text: msg });
+      chatText.value = '';
+      chatting.value = true;
+      try {
+        const resp = await fetch(API_BASE + '/diet/recognize/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('token') },
+          body: JSON.stringify({ convId: convId.value || null, message: msg })
+        });
+        const j = await resp.json();
+        if (j.code !== 200) { ElMessage.error(j.msg || '修改失败'); return; }
+        acceptResult(j.data);
+      } catch (e) { ElMessage.error('请求失败：' + e.message); }
+      finally { chatting.value = false; }
+    };
+    const validItems = computed(() => items.value.filter(r => !r.error && r.food && Number(r.calories) > 0));
+    const totalCal = computed(() => validItems.value.reduce((s, r) => s + Number(r.calories || 0), 0));
+    const removeItem = r => items.value.splice(items.value.indexOf(r), 1);
+    const confirmSave = async () => {
+      if (!validItems.value.length) { ElMessage.warning('没有可确认的食物（需名称与热量）'); return; }
+      saving.value = true;
+      try {
+        const food = validItems.value
+          .map(r => `${r.food} ${r.amount ? r.amount + 'g' : ''} ${r.calories}千卡`.replace(/\s+/g, ' ').trim())
+          .join('，');
+        await apiPost('/diet', {
+          recordDate: recordDate.value, mealType: mealType.value,
+          food, calories: totalCal.value, remark: ''
+        });
+        ElMessage.success('已记饮食，共 ' + totalCal.value + ' 千卡');
+        visible.value = false;
+        window.dispatchEvent(new Event('pm-data-changed'));
+      } catch (e) { /* 错误已由拦截层提示 */ }
+      finally { saving.value = false; }
+    };
+    return { visible, items, chatLog, analyzing, stage, chatting, chatText, mealType, recordDate,
+             saving, open, pickFiles, sendChat, validItems, totalCal, removeItem, confirmSave };
+  },
+  template: `
+    <el-button type="success" plain @click="open">拍照识别热量</el-button>
+    <el-dialog v-model="visible" title="AI 识别饮食（拍照或描述，确认后才记账）" width="92%" style="max-width:560px" top="5vh">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <el-button type="primary" plain size="small" :loading="analyzing" @click="$refs.fileInput.click()">
+          {{ analyzing ? (stage === 'ocr' ? '本地提取文字中…' : 'AI 识别中…') : '拍照/选图（可多选）' }}
+        </el-button>
+        <input ref="fileInput" type="file" accept="image/*" multiple style="display:none" @change="pickFiles" />
+        <span style="color:#909399;font-size:12px">支持食物照片、配料表、营养成分表；配料表会追问食用份量；也可直接在下方用文字描述</span>
+      </div>
+      <div v-if="items.length" style="border:1px solid #ebeef5;border-radius:8px;padding:8px 10px;margin-bottom:10px">
+        <div v-for="r in items" :key="r._key" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+          <template v-if="!r.error">
+            <el-input v-model="r.food" size="small" placeholder="食物" style="flex:1;min-width:110px" />
+            <el-input-number v-model="r.amount" size="small" :min="0" :precision="0" placeholder="克"
+                             style="width:88px" controls-position="right" />
+            <span style="color:#909399;font-size:12px">g</span>
+            <el-input-number v-model="r.calories" size="small" :min="0" :precision="0" placeholder="千卡"
+                             style="width:96px" controls-position="right" />
+            <span style="color:#909399;font-size:12px">千卡</span>
+            <el-button link type="danger" size="small" @click="removeItem(r)">移除</el-button>
+          </template>
+          <el-tag v-else type="danger" size="small">{{ r.error }}</el-tag>
+        </div>
+        <div style="text-align:right;color:#606266;font-size:13px">合计 <b style="color:#e6a23c">{{ totalCal }}</b> 千卡</div>
+      </div>
+      <div style="border:1px solid #f0f0f0;border-radius:8px;background:#fafafa;padding:8px 10px;margin-bottom:10px;max-height:150px;overflow:auto">
+        <div v-for="(m, i) in chatLog" :key="i"
+             :style="m.role === 'user'
+               ? 'text-align:right;margin:4px 0'
+               : 'text-align:left;margin:4px 0'">
+          <span :style="m.role === 'user'
+            ? 'display:inline-block;background:#409eff;color:#fff;padding:4px 10px;border-radius:10px;font-size:12px;max-width:85%;text-align:left'
+            : 'display:inline-block;background:#fff;border:1px solid #e4e7ed;color:#606266;padding:4px 10px;border-radius:10px;font-size:12px;max-width:85%'">
+            {{ m.text }}
+          </span>
+        </div>
+        <div v-if="!chatLog.length" style="color:#c0c4cc;font-size:12px;text-align:center">识别不准？用一句话告诉 AI，如“那不是米饭，是面条”“我吃的是 300 克”</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <el-input v-model="chatText" size="small" placeholder="向 AI 补充/修正，如：再加一杯豆浆"
+                  @keyup.enter="sendChat" :disabled="chatting" />
+        <el-button type="primary" size="small" :loading="chatting" :disabled="!chatText.trim()" @click="sendChat">发送</el-button>
+      </div>
+      <template #footer>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <el-date-picker v-model="recordDate" type="date" value-format="YYYY-MM-DD" size="small" style="width:140px" :clearable="false" />
+          <el-select v-model="mealType" size="small" style="width:96px">
+            <el-option v-for="t in ['早餐','午餐','晚餐','加餐']" :key="t" :label="t" :value="t" />
+          </el-select>
+          <el-button @click="visible = false">取消</el-button>
+          <el-button type="primary" :loading="saving" :disabled="!validItems.length" @click="confirmSave">
+            确认记饮食（{{ validItems.length }} 种，共 {{ totalCal }} 千卡）
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>`
+};
+
 const IncomePage = makeCrudPage({
   api: '/income', title: '收入', validate: requireAmountAndAsset, monthFilter: true, totalField: 'amount',
   empty: () => ({ amount: null, category: '工资', recordDate: todayStr(), assetId: null, remark: '' }),
@@ -1538,6 +1729,8 @@ const AssetPage = {
 };
 
 const mealTagType = t => ({ '早餐': 'primary', '午餐': 'warning', '晚餐': 'danger', '加餐': 'success' }[t] || 'info');
+/* AI 识别饮食落库的 food 格式为「食物 重量g 热量千卡」逗号分隔（多食物一条记录），展示端按逗号拆行 */
+const foodLines = f => String(f || '').split(/[，,]/).map(s => s.trim()).filter(Boolean);
 
 /* ---------------- 体重走势图（时间范围可选，默认近2周） ---------------- */
 const WeightTrendChart = {
@@ -1774,13 +1967,18 @@ const WeightPage = {
         <b style="color:#1d1d1f;font-size:15px">饮食记录</b>
         <el-date-picker v-model="filterDate" type="date" value-format="YYYY-MM-DD" :clearable="false" style="width:150px" />
         <div style="flex:1"></div>
-        <el-button type="primary" @click="dOpen()">记一笔饮食</el-button>
+        <CalorieRecognize />
+        <el-button type="primary" @click="dOpen()" style="margin-left:8px">记一笔饮食</el-button>
       </div>
       <el-table :data="dietList" stripe>
         <el-table-column label="餐次" width="90">
           <template #default="{ row }"><el-tag :type="mealTagType(row.mealType)" size="small">{{ row.mealType }}</el-tag></template>
         </el-table-column>
-        <el-table-column prop="food" label="食物" min-width="200" show-overflow-tooltip />
+        <el-table-column label="食物" min-width="200">
+          <template #default="{ row }">
+            <div v-for="(line, i) in foodLines(row.food)" :key="i" style="line-height:1.7">{{ line }}</div>
+          </template>
+        </el-table-column>
         <el-table-column prop="calories" label="热量（千卡）" width="140" />
         <el-table-column label="操作" width="150">
           <template #default="{ row }">
@@ -1899,7 +2097,9 @@ const MobileHealthPage = {
       <div class="m-line" v-for="r in dList" :key="r.id">
         <el-tag :type="mealTagType(r.mealType)" size="small" effect="plain" style="flex-shrink:0">{{ r.mealType }}</el-tag>
         <div class="m-line-main">
-          <div class="m-line-name">{{ r.food }}</div>
+          <div class="m-line-name">
+            <div v-for="(line, i) in foodLines(r.food)" :key="i">{{ line }}</div>
+          </div>
           <div class="m-line-sub">{{ r.calories }} 千卡</div>
         </div>
         <div style="display:flex;gap:2px;flex-shrink:0">
@@ -1908,7 +2108,10 @@ const MobileHealthPage = {
         </div>
       </div>
       <div v-if="!dList.length" class="m-empty">当日暂无饮食记录</div>
-      <div style="padding:10px 0 8px"><el-button style="width:100%" type="primary" plain @click="dOpen()">记一笔饮食</el-button></div>
+      <div style="padding:10px 0 8px;display:flex;gap:8px">
+        <CalorieRecognize style="flex:1" />
+        <el-button style="flex:1" type="primary" plain @click="dOpen()">记一笔饮食</el-button>
+      </div>
     </div>
     <div class="m-sec" style="padding-bottom:14px">
       <DietCalorieChart />
@@ -4047,6 +4250,7 @@ app.component('InvestDailyChart', InvestDailyChart);
 app.component('InvestProfitHistoryChart', InvestProfitHistoryChart);
 app.component('InvestPieCard', InvestPieCard);
 app.component('ExpenseRecognize', ExpenseRecognize);
+app.component('CalorieRecognize', CalorieRecognize);
 app.component('LoginPage', LoginPage);
 app.component('HomeTrendChart', HomeTrendChart);
 app.component('HomeExpensePie', HomeExpensePie);

@@ -314,44 +314,6 @@ public class ExpenseService {
         return out;
     }
 
-    /**
-     * 图片压缩：长边超过 1280 或体积超过 300KB 的图，等比缩到长边 1280 并重编码为 JPEG(0.8)；
-     * 已经够小的原样返回。解码失败（非标准图片）回退原始字节，由后续逻辑报错。
-     */
-    private byte[] compactImage(byte[] raw) {
-        if (raw == null || raw.length <= 300 * 1024) {
-            return raw;
-        }
-        try {
-            java.awt.image.BufferedImage src = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(raw));
-            if (src == null) {
-                return raw;
-            }
-            int max = Math.max(src.getWidth(), src.getHeight());
-            double scale = max > 1280 ? 1280.0 / max : 1.0;
-            int w = Math.max(1, (int) Math.round(src.getWidth() * scale));
-            int h = Math.max(1, (int) Math.round(src.getHeight() * scale));
-            java.awt.image.BufferedImage dst = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_RGB);
-            java.awt.Graphics2D g = dst.createGraphics();
-            g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g.drawImage(src, 0, 0, w, h, null);
-            g.dispose();
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            javax.imageio.ImageWriter writer = javax.imageio.ImageIO.getImageWritersByFormatName("jpeg").next();
-            writer.setOutput(javax.imageio.ImageIO.createImageOutputStream(out));
-            javax.imageio.ImageWriteParam param = writer.getDefaultWriteParam();
-            param.setCompressionMode(javax.imageio.ImageWriteParam.MODE_EXPLICIT);
-            param.setCompressionQuality(0.8f);
-            writer.write(null, new javax.imageio.IIOImage(dst, null, null), param);
-            writer.dispose();
-            byte[] compressed = out.toByteArray();
-            return compressed.length < raw.length ? compressed : raw;
-        } catch (Exception e) {
-            log.warn("图片压缩失败，使用原图: {}", e.getMessage());
-            return raw;
-        }
-    }
-
     /** 单图识别：返回 1~N 条记录（图中有多笔支付时逐笔展开），异常兜底为单条 error 占位 */
     private List<com.project.person.admin.model.RecognizedExpense> recognizeOne(
             org.springframework.web.multipart.MultipartFile file, String prompt, List<Asset> cashAssets) {
@@ -370,7 +332,7 @@ public class ExpenseService {
             /* 先压缩再 base64：手机原图单张 5~12MB，9 张并发转 base64 峰值可达 400MB+，
                512M 堆直接 OOM。统一压到长边 1280 的 JPEG（通常 <300KB），峰值降到几 MB，
                且 AI 传输更快、识别不受影响。 */
-            byte[] compact = compactImage(file.getBytes());
+            byte[] compact = com.project.person.admin.common.ImageCompactor.compact(file.getBytes());
             String dataUrl = "data:image/jpeg;base64,"
                     + java.util.Base64.getEncoder().encodeToString(compact);
             String resp = aiFacade.chat(com.project.person.admin.ai.AiAbility.ANALYZE_EXPEND_BY_PIC,

@@ -8,7 +8,10 @@ package com.project.person.admin.ai;
 public enum AiAbility {
 
     /** 解析支出图片（小票/支付截图）：识别支出时间、金额、支付渠道 */
-    ANALYZE_EXPEND_BY_PIC("ai/AnalyzeExpendByPic.md");
+    ANALYZE_EXPEND_BY_PIC("ai/AnalyzeExpendByPic.md"),
+
+    /** 解析饮食图片（食物/配料表/营养成分表）或文字描述：识别食物、重量、卡路里，支持对话修正 */
+    ANALYZE_CALORIE_BY_PIC("ai/AnalyzeCalorieByPic.md");
 
     private final String promptPath;
 

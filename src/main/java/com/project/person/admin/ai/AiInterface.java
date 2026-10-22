@@ -18,6 +18,13 @@ public interface AiInterface {
      */
     String chat(AiAbility ability, String userPrompt, List<String> images);
 
+    /**
+     * 多轮对话（带历史上下文，可含图片）：首轮与修正轮共用本方法。
+     * 无状态模型（如 kimi-k2.6）下由调用方把历史轮次（含图片）整体传入，
+     * 实现负责按 role/text/images 组装 messages；有状态模型可忽略历史仅取末轮。
+     */
+    String chat(AiAbility ability, List<AiChatTurn> turns);
+
     /** 实现标识（日志用），如 kimi */
     String name();
 }

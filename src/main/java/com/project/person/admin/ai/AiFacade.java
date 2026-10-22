@@ -29,4 +29,13 @@ public class AiFacade {
                 images == null ? 0 : images.size());
         return ai.chat(ability, userPrompt, images);
     }
+
+    /**
+     * 多轮对话调用（首轮/修正轮共用）：turns 为完整历史（含图片），由实现组装上下文。
+     */
+    public String chat(AiAbility ability, List<AiChatTurn> turns) {
+        log.debug("AI 多轮对话 [{}] via {}, turns={}", ability.name(), ai.name(),
+                turns == null ? 0 : turns.size());
+        return ai.chat(ability, turns);
+    }
 }

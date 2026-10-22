@@ -62,6 +62,68 @@ public class KimiAiImpl implements AiInterface {
     }
 
     @Override
+    public String chat(AiAbility ability, List<AiChatTurn> turns) {
+        if (turns == null || turns.isEmpty()) {
+            throw BizException.badRequest("对话内容为空");
+        }
+        if (!StringUtils.hasText(apiKey)) {
+            throw BizException.badRequest("未配置 Kimi API Key（moonshot.api-key 或环境变量 MOONSHOT_API_KEY）");
+        }
+        try {
+            ObjectNode body = objectMapper.createObjectNode();
+            body.put("model", model);
+
+            ArrayNode messages = body.putArray("messages");
+            ObjectNode sys = messages.addObject();
+            sys.put("role", "system");
+            sys.put("content", promptLoader.load(ability));
+
+            for (AiChatTurn turn : turns) {
+                ObjectNode msg = messages.addObject();
+                msg.put("role", turn.getRole());
+                List<String> images = turn.getImages();
+                boolean hasText = turn.getText() != null && !turn.getText().isEmpty();
+                if (images == null || images.isEmpty()) {
+                    msg.put("content", hasText ? turn.getText() : "");
+                } else {
+                    ArrayNode content = msg.putArray("content");
+                    for (String img : images) {
+                        ObjectNode part = content.addObject();
+                        part.put("type", "image_url");
+                        part.putObject("image_url").put("url", img);
+                    }
+                    ObjectNode text = content.addObject();
+                    text.put("type", "text");
+                    text.put("text", hasText ? turn.getText() : " ");
+                }
+            }
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(apiKey.trim());
+            ResponseEntity<String> resp = restTemplate.exchange(
+                    API_URL, HttpMethod.POST, new HttpEntity<>(body.toString(), headers), String.class);
+            JsonNode root = objectMapper.readTree(resp.getBody());
+            String out = root.path("choices").path(0).path("message").path("content").asText(null);
+            if (!StringUtils.hasText(out)) {
+                throw BizException.badRequest("AI 未返回识别结果");
+            }
+            return out;
+        } catch (BizException e) {
+            throw e;
+        } catch (Exception e) {
+            if (e instanceof org.springframework.web.client.HttpClientErrorException) {
+                org.springframework.web.client.HttpClientErrorException he =
+                        (org.springframework.web.client.HttpClientErrorException) e;
+                log.warn("Kimi HTTP 错误: status={}, headers={}, body={}",
+                        he.getStatusCode(), he.getResponseHeaders(), he.getResponseBodyAsString());
+            }
+            log.warn("Kimi 调用失败: {}", e.getMessage());
+            throw BizException.badRequest("AI 识图失败：" + e.getMessage());
+        }
+    }
+
+    @Override
     public String chat(AiAbility ability, String userPrompt, List<String> images) {
         if (!StringUtils.hasText(apiKey)) {
             throw BizException.badRequest("未配置 Kimi API Key（moonshot.api-key 或环境变量 MOONSHOT_API_KEY）");
