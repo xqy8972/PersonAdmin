@@ -1006,6 +1006,12 @@ const CalorieRecognize = {
   template: `
     <el-button type="success" plain @click="open">AI识别热量</el-button>
     <el-dialog v-model="visible" title="AI 识别热量" width="94%" style="max-width:720px" top="4vh">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <el-date-picker v-model="recordDate" type="date" value-format="YYYY-MM-DD" style="flex:1" :clearable="false" />
+        <el-select v-model="mealType" style="flex:1">
+          <el-option v-for="t in ['早餐','午餐','晚餐','加餐']" :key="t" :label="t" :value="t" />
+        </el-select>
+      </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <input ref="fileInput" type="file" accept="image/*" multiple style="display:none" @change="pickFiles" />
         <span style="color:#909399;font-size:12px">支持食物照片、配料表、营养成分表（一次最多9张），也可直接在下方用文字描述</span>
@@ -1058,14 +1064,9 @@ const CalorieRecognize = {
         </el-button>
       </div>
       <template #footer>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <el-date-picker v-model="recordDate" type="date" value-format="YYYY-MM-DD" size="small" style="width:110px" :clearable="false" />
-          <el-select v-model="mealType" size="small" style="width:110px">
-            <el-option v-for="t in ['早餐','午餐','晚餐','加餐']" :key="t" :label="t" :value="t" />
-          </el-select>
-          <div style="flex:1"></div>
-          <el-button type="primary" size="small" :loading="saving" :disabled="!validItems.length" @click="confirmSave">确认记饮食</el-button>
-        </div>
+        <el-button type="primary" style="width:100%" :loading="saving" :disabled="!validItems.length" @click="confirmSave">
+          确认记饮食（{{ validItems.length }} 种，共 {{ totalCal }} 千卡）
+        </el-button>
       </template>
     </el-dialog>`
 };
