@@ -1050,9 +1050,9 @@ const CalorieRecognize = {
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <el-button type="primary" plain :disabled="analyzing" @click="$refs.fileInput.click()">拍照</el-button>
         <el-input v-model="chatText" placeholder="向AI描述/修正/补充"
                   @keyup.enter="sendChat" :disabled="chatting" style="flex:1" />
+        <el-button type="primary" plain :disabled="analyzing" @click="$refs.fileInput.click()">拍照</el-button>
         <el-button type="primary" :loading="chatting" :disabled="!chatText.trim() || chatting" @click="sendChat">
           {{ chatting ? 'AI 思考中…' : '发送' }}
         </el-button>
@@ -1064,10 +1064,7 @@ const CalorieRecognize = {
             <el-option v-for="t in ['早餐','午餐','晚餐','加餐']" :key="t" :label="t" :value="t" />
           </el-select>
           <div style="flex:1"></div>
-          <el-button size="small" @click="visible = false">取消</el-button>
-          <el-button type="primary" size="small" :loading="saving" :disabled="!validItems.length" @click="confirmSave">
-            确认记饮食（{{ validItems.length }} 种，共 {{ totalCal }} 千卡）
-          </el-button>
+          <el-button type="primary" size="small" :loading="saving" :disabled="!validItems.length" @click="confirmSave">确认记饮食</el-button>
         </div>
       </template>
     </el-dialog>`
