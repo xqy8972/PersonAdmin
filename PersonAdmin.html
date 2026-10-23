@@ -1786,6 +1786,11 @@ const totalKcal = (foods, fallback) => {
   const ks = foods.map(f => Number(f.kcal)).filter(v => Number.isFinite(v) && v > 0);
   return ks.length ? Math.round(ks.reduce((s, v) => s + v, 0)) : (fallback || 0);
 };
+/* 单项热量展示：单条无热量但整条记录只有一种食物时，用记录总热量兜底（兼容旧格式记录） */
+const foodRowKcal = (f, r) => {
+  if (f.kcal !== null && f.kcal !== undefined && f.kcal !== '') return f.kcal;
+  return (parseFoods(r.food).length === 1 && r.calories != null) ? r.calories : '';
+};
 
 /* ---------------- 体重走势图（时间范围可选，默认近2周） ---------------- */
 const WeightTrendChart = {
@@ -1982,10 +1987,15 @@ const WeightPage = {
     /* 饮食编辑：food 字段按每种食物解析进弹窗（与 AI 识别结果列表同款交互），保存时拼回 */
     const emptyFood = () => ({ name: '', grams: null, kcal: null });
     const dOpen = row => {
-      dForm.value = row
-        ? { id: row.id, recordDate: row.recordDate, mealType: row.mealType,
-            foods: parseFoods(row.food), origCal: row.calories }
-        : { id: null, recordDate: todayStr(), mealType: '午餐', foods: [emptyFood()], origCal: 0 };
+      if (row) {
+        const foods = parseFoods(row.food);
+        // 单食物旧记录无单条热量时，用记录总热量兜底，编辑页也能看到/修改该项热量
+        if (foods.length === 1 && foods[0].kcal == null) foods[0].kcal = row.calories;
+        dForm.value = { id: row.id, recordDate: row.recordDate, mealType: row.mealType,
+                        foods, origCal: row.calories };
+      } else {
+        dForm.value = { id: null, recordDate: todayStr(), mealType: '午餐', foods: [emptyFood()], origCal: 0 };
+      }
       dDialog.value = true;
     };
     const dAddFood = () => dForm.value.foods.push(emptyFood());
@@ -2021,7 +2031,7 @@ const WeightPage = {
     onMounted(() => { loadW(); loadD(); });
     return { wList, wDialog, wForm, wOpen, wSave, wDel,
              dList, dDialog, dForm, dOpen, dSave, dAddFood, dRemoveFood,
-             filterDate, dietList, latest, mealTagType, fmt, foodLines, parseFoods };
+             filterDate, dietList, latest, mealTagType, fmt, foodLines, parseFoods, foodRowKcal };
   },
   template: `<div>
     <WeightTrendChart>
@@ -2059,7 +2069,7 @@ const WeightPage = {
             <div style="color:#1d1d1f;line-height:1.5">{{ f.name }}</div>
             <div v-if="f.grams" style="color:#b0b0b5;font-size:11px;line-height:1.4">{{ f.grams }} g</div>
           </div>
-          <div style="flex-shrink:0;color:#1d1d1f;font-weight:600">{{ f.kcal != null ? f.kcal + ' 千卡' : '' }}</div>
+          <div style="flex-shrink:0;color:#909399;font-size:13px">{{ foodRowKcal(f, r) !== '' ? foodRowKcal(f, r) + ' 千卡' : '' }}</div>
           <el-icon :size="14" color="#c8c9cc" style="flex-shrink:0"><ArrowRight /></el-icon>
         </div>
       </div>
@@ -2140,10 +2150,15 @@ const MobileHealthPage = {
     /* 饮食编辑：food 字段按每种食物解析进弹窗（与 AI 识别结果列表同款交互），保存时拼回 */
     const emptyFood = () => ({ name: '', grams: null, kcal: null });
     const dOpen = row => {
-      dForm.value = row
-        ? { id: row.id, recordDate: row.recordDate, mealType: row.mealType,
-            foods: parseFoods(row.food), origCal: row.calories }
-        : { id: null, recordDate: filterDate.value, mealType: '午餐', foods: [emptyFood()], origCal: 0 };
+      if (row) {
+        const foods = parseFoods(row.food);
+        // 单食物旧记录无单条热量时，用记录总热量兜底，编辑页也能看到/修改该项热量
+        if (foods.length === 1 && foods[0].kcal == null) foods[0].kcal = row.calories;
+        dForm.value = { id: row.id, recordDate: row.recordDate, mealType: row.mealType,
+                        foods, origCal: row.calories };
+      } else {
+        dForm.value = { id: null, recordDate: filterDate.value, mealType: '午餐', foods: [emptyFood()], origCal: 0 };
+      }
       dDialog.value = true;
     };
     const dAddFood = () => dForm.value.foods.push(emptyFood());
@@ -2179,7 +2194,7 @@ const MobileHealthPage = {
     onBeforeUnmount(() => window.removeEventListener('pm-data-changed', refreshAll));
     return { wList, wDialog, wForm, wOpen, wSave, refreshAll, pullReload, loadingW, loadingD,
              dList, dDialog, dForm, dOpen, dSave, dAddFood, dRemoveFood,
-             filterDate, latest, dayWheelVisible, onDay, mealTagType, fmt, foodLines, parseFoods };
+             filterDate, latest, dayWheelVisible, onDay, mealTagType, fmt, foodLines, parseFoods, foodRowKcal };
   },
   template: `<PullRefresh :on-refresh="pullReload"><div class="m-wrap">
     <div class="m-hero" style="background:linear-gradient(135deg,#30b0c7 0%,#1f8fb5 55%,#1a7ba0 100%);box-shadow:0 10px 26px rgba(31,143,181,.35)">
@@ -2214,7 +2229,7 @@ const MobileHealthPage = {
             <div style="font-size:14px;color:#1d1d1f;line-height:1.5">{{ f.name }}</div>
             <div v-if="f.grams" style="font-size:11px;color:#b0b0b5;line-height:1.4">{{ f.grams }} g</div>
           </div>
-          <div style="flex-shrink:0;font-size:13px;font-weight:600;color:#1d1d1f">{{ f.kcal != null ? f.kcal + ' 千卡' : '' }}</div>
+          <div style="flex-shrink:0;font-size:13px;color:#86868b">{{ foodRowKcal(f, r) !== '' ? foodRowKcal(f, r) + ' 千卡' : '' }}</div>
           <el-icon :size="14" color="#c8c9cc" style="flex-shrink:0"><ArrowRight /></el-icon>
         </div>
       </div>

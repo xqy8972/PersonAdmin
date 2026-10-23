@@ -2,6 +2,7 @@ package com.project.person.admin.controller;
 
 import com.project.person.admin.common.BizException;
 import com.project.person.admin.common.Result;
+import com.project.person.admin.common.UserContext;
 import com.project.person.admin.model.DietRecord;
 import com.project.person.admin.service.CalorieRecognizeService;
 import com.project.person.admin.service.DietService;
@@ -164,6 +165,7 @@ public class DietController {
         // 必须在请求线程内读完字节再异步处理：返回 SseEmitter 后请求即结束，
         // Tomcat 会清理临时上传文件，异步线程再读 getBytes() 会失败导致识图失败
         final java.util.List<byte[]> raws = new java.util.ArrayList<>();
+        final Long uid;
         try {
             if (files != null) {
                 for (org.springframework.web.multipart.MultipartFile f : files) {
@@ -172,6 +174,8 @@ public class DietController {
                     }
                 }
             }
+            // 必须在请求线程读取：用户ID存 ThreadLocal，异步线程里取不到会直接报“未登录”
+            uid = UserContext.getUserId();
         } catch (Exception e) {
             new Thread(() -> {
                 sendSse(emitter, "error", "读取图片失败：" + e.getMessage());
@@ -181,12 +185,14 @@ public class DietController {
         }
         new Thread(() -> {
             try {
+                UserContext.setUserId(uid);
                 CalorieRecognizeService.RecognizeResult r =
                         calorieRecognizeService.recognizeRaws(raws, delta -> sendSse(emitter, "delta", delta));
                 sendSse(emitter, "done", r);
             } catch (Exception e) {
                 sendSse(emitter, "error", e.getMessage() == null ? "识别失败" : e.getMessage());
             } finally {
+                UserContext.clear();
                 emitter.complete();
             }
         }, "diet-recognize-stream").start();
@@ -200,8 +206,11 @@ public class DietController {
     public SseEmitter recognizeChatStream(
             @RequestBody java.util.Map<String, Object> body) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
+        // 用户ID存 ThreadLocal，同样需要在请求线程捕获后传递给异步线程
+        final Long uid = UserContext.getUserId();
         new Thread(() -> {
             try {
+                UserContext.setUserId(uid);
                 Object convId = body == null ? null : body.get("convId");
                 Object message = body == null ? null : body.get("message");
                 CalorieRecognizeService.RecognizeResult r = calorieRecognizeService.chat(
@@ -212,6 +221,7 @@ public class DietController {
             } catch (Exception e) {
                 sendSse(emitter, "error", e.getMessage() == null ? "识别失败" : e.getMessage());
             } finally {
+                UserContext.clear();
                 emitter.complete();
             }
         }, "diet-chat-stream").start();
