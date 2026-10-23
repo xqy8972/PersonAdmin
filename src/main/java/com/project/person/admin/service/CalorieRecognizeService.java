@@ -94,22 +94,37 @@ public class CalorieRecognizeService {
         if (files.length > 9) {
             throw BizException.badRequest("一次最多识别 9 张图片");
         }
-        List<String> images = new ArrayList<>();
+        // 必须在请求线程内读完字节：流式场景控制器返回 SseEmitter 后请求即结束，
+        // Tomcat 会清理临时上传文件，异步线程再读会失败
+        List<byte[]> raws = new ArrayList<>();
         try {
             for (MultipartFile file : files) {
-                if (file.isEmpty()) {
-                    continue;
+                if (!file.isEmpty()) {
+                    raws.add(file.getBytes());
                 }
-                /* 先压缩再 base64：手机原图单张 5~12MB，并发转 base64 峰值可达 400MB+，
-                   512M 堆直接 OOM。统一压到长边 1280 的 JPEG（通常 <300KB）。 */
-                byte[] compact = ImageCompactor.compact(file.getBytes());
-                images.add("data:image/jpeg;base64," + Base64.getEncoder().encodeToString(compact));
             }
         } catch (Exception e) {
             throw BizException.badRequest("读取图片失败：" + e.getMessage());
         }
-        if (images.isEmpty()) {
-            throw BizException.badRequest("图片内容为空");
+        return recognizeRaws(raws, onDelta);
+    }
+
+    /**
+     * 图片字节识别（压缩→base64→AI）：流式/非流式共用入口；raws 须已脱离 multipart 生命周期。
+     */
+    public RecognizeResult recognizeRaws(List<byte[]> raws, java.util.function.Consumer<String> onDelta) {
+        if (raws == null || raws.isEmpty()) {
+            throw BizException.badRequest("请选择要识别的图片");
+        }
+        if (raws.size() > 9) {
+            throw BizException.badRequest("一次最多识别 9 张图片");
+        }
+        List<String> images = new ArrayList<>();
+        for (byte[] raw : raws) {
+            /* 先压缩再 base64：手机原图单张 5~12MB，并发转 base64 峰值可达 400MB+，
+               512M 堆直接 OOM。统一压到长边 1280 的 JPEG（通常 <300KB）。 */
+            byte[] compact = ImageCompactor.compact(raw);
+            images.add("data:image/jpeg;base64," + Base64.getEncoder().encodeToString(compact));
         }
         String prompt = images.size() > 1
                 ? "以下是 " + images.size() + " 张食物/营养成分相关图片（可能是同一餐的不同食物，也可能是配料表/营养成分表），请逐一识别："

@@ -1989,13 +1989,23 @@ const WeightPage = {
       dDialog.value = true;
     };
     const dAddFood = () => dForm.value.foods.push(emptyFood());
-    const dRemoveFood = fi => {
-      dForm.value.foods.splice(fi, 1);
-      if (!dForm.value.foods.length) dForm.value.foods.push(emptyFood());
-    };
+    const dRemoveFood = fi => { dForm.value.foods.splice(fi, 1); };
     const dSave = async () => {
       const foods = (dForm.value.foods || []).filter(f => (f.name || '').trim());
-      if (!foods.length) { ElMessage.warning('请至少填写一种食物'); return; }
+      if (!foods.length) {
+        // 编辑时把每种食物都删了 = 删除整条记录
+        if (dForm.value.id) {
+          try { await ElMessageBox.confirm('已移除全部食物，将删除整条饮食记录，确定？', '提示', { type: 'warning' }); } catch (e) { return; }
+          try {
+            await apiDel('/diet/' + dForm.value.id);
+            ElMessage.success('已删除'); dDialog.value = false;
+            loadD(); window.dispatchEvent(new Event('pm-data-changed'));
+          } catch (e) {}
+        } else {
+          ElMessage.warning('请至少填写一种食物');
+        }
+        return;
+      }
       const payload = { recordDate: dForm.value.recordDate, mealType: dForm.value.mealType,
                         food: buildFoodStr(foods), calories: totalKcal(foods, dForm.value.origCal) };
       try {
@@ -2005,24 +2015,12 @@ const WeightPage = {
         loadD(); window.dispatchEvent(new Event('pm-data-changed'));
       } catch (e) {}
     };
-    /* 按每种食物删除：删最后一种时整条记录删除 */
-    const dDelFood = async (r, fi) => {
-      const foods = parseFoods(r.food);
-      const name = foods[fi] ? foods[fi].name : '';
-      try { await ElMessageBox.confirm(`删除「${name}」？`, '提示', { type: 'warning' }); } catch (e) { return; }
-      foods.splice(fi, 1);
-      try {
-        if (!foods.length) await apiDel('/diet/' + r.id);
-        else await apiPut('/diet/' + r.id, { ...r, food: buildFoodStr(foods), calories: totalKcal(foods, r.calories) });
-        ElMessage.success('已删除'); loadD(); window.dispatchEvent(new Event('pm-data-changed'));
-      } catch (e) {}
-    };
     const dietList = computed(() => dList.value);
     const latest = computed(() => wList.value.length ? wList.value.reduce((a, b) => (a.recordDate > b.recordDate) ? a : b) : null);
     watch(filterDate, () => loadD());
     onMounted(() => { loadW(); loadD(); });
     return { wList, wDialog, wForm, wOpen, wSave, wDel,
-             dList, dDialog, dForm, dOpen, dSave, dDelFood, dAddFood, dRemoveFood,
+             dList, dDialog, dForm, dOpen, dSave, dAddFood, dRemoveFood,
              filterDate, dietList, latest, mealTagType, fmt, foodLines, parseFoods };
   },
   template: `<div>
@@ -2054,18 +2052,15 @@ const WeightPage = {
           <b style="color:#e6a23c">{{ r.calories }}</b>
           <span style="font-size:12px;color:#909399">千卡</span>
         </div>
-        <div v-for="(f, fi) in parseFoods(r.food)" :key="fi" style="display:flex;align-items:flex-start;gap:6px;padding:4px 0 4px 6px">
+        <div v-for="(f, fi) in parseFoods(r.food)" :key="fi" class="diet-food-row"
+             style="display:flex;align-items:center;gap:8px;padding:6px 0 6px 6px;cursor:pointer"
+             @click="dOpen(r)">
           <div style="flex:1;min-width:0">
             <div style="color:#1d1d1f;line-height:1.5">{{ f.name }}</div>
             <div v-if="f.grams" style="color:#b0b0b5;font-size:11px;line-height:1.4">{{ f.grams }} g</div>
           </div>
-          <div style="flex-shrink:0;text-align:right">
-            <div style="color:#1d1d1f;font-weight:600;line-height:1.5">{{ f.kcal != null ? f.kcal + ' 千卡' : '' }}</div>
-            <div style="display:flex;justify-content:flex-end;margin-top:2px">
-              <el-button size="small" text type="primary" @click="dOpen(r)">编辑</el-button>
-              <el-button size="small" text type="danger" style="margin-left:0" @click="dDelFood(r, fi)">删除</el-button>
-            </div>
-          </div>
+          <div style="flex-shrink:0;color:#1d1d1f;font-weight:600">{{ f.kcal != null ? f.kcal + ' 千卡' : '' }}</div>
+          <el-icon :size="14" color="#c8c9cc" style="flex-shrink:0"><ArrowRight /></el-icon>
         </div>
       </div>
       <div v-if="!dietList.length" style="color:#909399;font-size:13px;text-align:center;padding:20px 0">当日暂无饮食记录</div>
@@ -2152,13 +2147,23 @@ const MobileHealthPage = {
       dDialog.value = true;
     };
     const dAddFood = () => dForm.value.foods.push(emptyFood());
-    const dRemoveFood = fi => {
-      dForm.value.foods.splice(fi, 1);
-      if (!dForm.value.foods.length) dForm.value.foods.push(emptyFood());
-    };
+    const dRemoveFood = fi => { dForm.value.foods.splice(fi, 1); };
     const dSave = async () => {
       const foods = (dForm.value.foods || []).filter(f => (f.name || '').trim());
-      if (!foods.length) { ElMessage.warning('请至少填写一种食物'); return; }
+      if (!foods.length) {
+        // 编辑时把每种食物都删了 = 删除整条记录
+        if (dForm.value.id) {
+          try { await ElMessageBox.confirm('已移除全部食物，将删除整条饮食记录，确定？', '提示', { type: 'warning' }); } catch (e) { return; }
+          try {
+            await apiDel('/diet/' + dForm.value.id);
+            ElMessage.success('已删除'); dDialog.value = false;
+            loadD(); window.dispatchEvent(new Event('pm-data-changed'));
+          } catch (e) {}
+        } else {
+          ElMessage.warning('请至少填写一种食物');
+        }
+        return;
+      }
       const payload = { recordDate: dForm.value.recordDate, mealType: dForm.value.mealType,
                         food: buildFoodStr(foods), calories: totalKcal(foods, dForm.value.origCal) };
       try {
@@ -2168,24 +2173,12 @@ const MobileHealthPage = {
         loadD(); window.dispatchEvent(new Event('pm-data-changed'));
       } catch (e) {}
     };
-    /* 按每种食物删除：删最后一种时整条记录删除 */
-    const dDelFood = async (r, fi) => {
-      const foods = parseFoods(r.food);
-      const name = foods[fi] ? foods[fi].name : '';
-      try { await ElMessageBox.confirm(`删除「${name}」？`, '提示', { type: 'warning' }); } catch (e) { return; }
-      foods.splice(fi, 1);
-      try {
-        if (!foods.length) await apiDel('/diet/' + r.id);
-        else await apiPut('/diet/' + r.id, { ...r, food: buildFoodStr(foods), calories: totalKcal(foods, r.calories) });
-        ElMessage.success('已删除'); loadD(); window.dispatchEvent(new Event('pm-data-changed'));
-      } catch (e) {}
-    };
     const latest = computed(() => wList.value.length ? wList.value.reduce((a, b) => (a.recordDate > b.recordDate) ? a : b) : null);
     watch(filterDate, () => loadD());
     onMounted(() => { loadW(); loadD(); window.addEventListener('pm-data-changed', refreshAll); });
     onBeforeUnmount(() => window.removeEventListener('pm-data-changed', refreshAll));
     return { wList, wDialog, wForm, wOpen, wSave, refreshAll, pullReload, loadingW, loadingD,
-             dList, dDialog, dForm, dOpen, dSave, dDelFood, dAddFood, dRemoveFood,
+             dList, dDialog, dForm, dOpen, dSave, dAddFood, dRemoveFood,
              filterDate, latest, dayWheelVisible, onDay, mealTagType, fmt, foodLines, parseFoods };
   },
   template: `<PullRefresh :on-refresh="pullReload"><div class="m-wrap">
@@ -2214,18 +2207,15 @@ const MobileHealthPage = {
           <b style="color:#e6a23c;font-size:13px">{{ r.calories }}</b>
           <span style="color:#86868b;font-size:11px">千卡</span>
         </div>
-        <div v-for="(f, fi) in parseFoods(r.food)" :key="fi" style="display:flex;align-items:flex-start;gap:6px;padding:4px 0 4px 2px">
+        <div v-for="(f, fi) in parseFoods(r.food)" :key="fi" class="diet-food-row"
+             style="display:flex;align-items:center;gap:8px;padding:6px 0 6px 2px"
+             @click="dOpen(r)">
           <div style="flex:1;min-width:0">
             <div style="font-size:14px;color:#1d1d1f;line-height:1.5">{{ f.name }}</div>
             <div v-if="f.grams" style="font-size:11px;color:#b0b0b5;line-height:1.4">{{ f.grams }} g</div>
           </div>
-          <div style="flex-shrink:0;text-align:right">
-            <div style="font-size:13px;font-weight:600;color:#1d1d1f;line-height:1.5">{{ f.kcal != null ? f.kcal + ' 千卡' : '' }}</div>
-            <div style="display:flex;justify-content:flex-end;margin-top:2px">
-              <el-button size="small" text type="primary" @click="dOpen(r)">编辑</el-button>
-              <el-button size="small" text type="danger" style="margin-left:0" @click="dDelFood(r, fi)">删除</el-button>
-            </div>
-          </div>
+          <div style="flex-shrink:0;font-size:13px;font-weight:600;color:#1d1d1f">{{ f.kcal != null ? f.kcal + ' 千卡' : '' }}</div>
+          <el-icon :size="14" color="#c8c9cc" style="flex-shrink:0"><ArrowRight /></el-icon>
         </div>
       </div>
       <div v-if="!dList.length" class="m-empty">当日暂无饮食记录</div>

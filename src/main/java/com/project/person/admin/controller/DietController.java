@@ -161,10 +161,28 @@ public class DietController {
     public SseEmitter recognizeStream(
             @RequestParam("files") org.springframework.web.multipart.MultipartFile[] files) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
+        // 必须在请求线程内读完字节再异步处理：返回 SseEmitter 后请求即结束，
+        // Tomcat 会清理临时上传文件，异步线程再读 getBytes() 会失败导致识图失败
+        final java.util.List<byte[]> raws = new java.util.ArrayList<>();
+        try {
+            if (files != null) {
+                for (org.springframework.web.multipart.MultipartFile f : files) {
+                    if (f != null && !f.isEmpty()) {
+                        raws.add(f.getBytes());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            new Thread(() -> {
+                sendSse(emitter, "error", "读取图片失败：" + e.getMessage());
+                emitter.complete();
+            }).start();
+            return emitter;
+        }
         new Thread(() -> {
             try {
                 CalorieRecognizeService.RecognizeResult r =
-                        calorieRecognizeService.recognize(files, delta -> sendSse(emitter, "delta", delta));
+                        calorieRecognizeService.recognizeRaws(raws, delta -> sendSse(emitter, "delta", delta));
                 sendSse(emitter, "done", r);
             } catch (Exception e) {
                 sendSse(emitter, "error", e.getMessage() == null ? "识别失败" : e.getMessage());
