@@ -161,9 +161,20 @@ public class OpenAiCompatAiImpl implements AiInterface {
                     if (choices.size() == 0) {
                         continue;
                     }
-                    JsonNode delta = choices.get(0).path("delta").path("content");
-                    if (delta.isTextual()) {
-                        String d = delta.asText();
+                    JsonNode deltaNode = choices.get(0).path("delta").path("content");
+                    // Qwen3-VL 等在流式下可能把 content 回成 [{type:text,text:...}] 数组，两种都兼容
+                    StringBuilder chunk = new StringBuilder();
+                    if (deltaNode.isTextual()) {
+                        chunk.append(deltaNode.asText());
+                    } else if (deltaNode.isArray()) {
+                        for (JsonNode part : deltaNode) {
+                            if (part.path("type").asText().equals("text")) {
+                                chunk.append(part.path("text").asText());
+                            }
+                        }
+                    }
+                    if (chunk.length() > 0) {
+                        String d = chunk.toString();
                         acc.append(d);
                         if (onDelta != null) {
                             onDelta.accept(d);
