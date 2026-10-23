@@ -832,6 +832,31 @@ const CalorieRecognize = {
       if (files.length > 9) { ElMessage.warning('一次最多 9 张'); return; }
       await analyze(files);
     };
+    /* 上传前本地压缩：手机原图动辄 5~12MB，移动端上行慢，先在前端压到长边1600的
+       JPEG（通常<500KB），上传快很多；解码失败或压完更大则用原图直传 */
+    const compressImage = file => new Promise(resolve => {
+      try {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          try {
+            const max = 1600;
+            let w = img.width, h = img.height;
+            if (Math.max(w, h) > max) {
+              const s = max / Math.max(w, h);
+              w = Math.round(w * s); h = Math.round(h * s);
+            }
+            const cv = document.createElement('canvas');
+            cv.width = w; cv.height = h;
+            cv.getContext('2d').drawImage(img, 0, 0, w, h);
+            URL.revokeObjectURL(url);
+            cv.toBlob(b => resolve(b && b.size < file.size ? b : file), 'image/jpeg', 0.85);
+          } catch (e) { resolve(file); }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+      } catch (e) { resolve(file); }
+    });
     /* 读取 SSE 流：done 事件返回最终结果，error 抛错；delta 增量不透出，界面只显示思考计时 */
     const readSse = async (resp, onDone) => {
       const reader = resp.body.getReader();
@@ -864,7 +889,8 @@ const CalorieRecognize = {
       startThinkTimer();
       try {
         const fd = new FormData();
-        files.forEach(f => fd.append('files', f));
+        const compressed = await Promise.all(files.map(compressImage));
+        compressed.forEach(f => fd.append('files', f, f.name || 'photo.jpg'));
         let retried = false;
         for (;;) {
           try {

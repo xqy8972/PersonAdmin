@@ -41,6 +41,10 @@ public class KimiAiImpl implements AiInterface {
     @Value("${moonshot.model:kimi-k2.6}")
     private String model;
 
+    /** 关闭思考阶段：实测 k2.6 识图 24s→14s，质量无损（k3 等模型会忽略该参数） */
+    @Value("${moonshot.thinking-enabled:false}")
+    private boolean thinkingEnabled;
+
     @Autowired
     private PromptTemplateLoader promptLoader;
 
@@ -200,6 +204,9 @@ public class KimiAiImpl implements AiInterface {
         if (stream) {
             body.put("stream", true);
         }
+        if (!thinkingEnabled) {
+            body.put("enable_thinking", false);
+        }
 
         ArrayNode messages = body.putArray("messages");
         ObjectNode sys = messages.addObject();
@@ -236,6 +243,9 @@ public class KimiAiImpl implements AiInterface {
         try {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("model", model);
+            if (!thinkingEnabled) {
+                body.put("enable_thinking", false);
+            }
             // 注意：kimi-k2.6 等推理模型仅允许 temperature=1，不显式传参，用模型默认值
 
             ArrayNode messages = body.putArray("messages");
