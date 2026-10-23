@@ -794,7 +794,18 @@ const CalorieRecognize = {
     const stage = ref(''); // 'ocr' 本地文字提取 / 'ai' AI 解析
     const chatting = ref(false);
     const chatText = ref('');
-    const thinking = ref(''); // AI 流式生成中的实时文本（思考进度）
+    /* AI 思考计时：从请求发往后端开始计秒，null=未在思考；不展示思考内容，只展示计时 */
+    const thinkingSec = ref(null);
+    let thinkTimer = null;
+    const startThinkTimer = () => {
+      stopThinkTimer();
+      thinkingSec.value = 0;
+      thinkTimer = setInterval(() => { thinkingSec.value++; }, 1000);
+    };
+    const stopThinkTimer = () => {
+      if (thinkTimer) { clearInterval(thinkTimer); thinkTimer = null; }
+      thinkingSec.value = null;
+    };
     const mealType = ref('午餐');
     const recordDate = ref(todayStr());
     const saving = ref(false);
@@ -807,6 +818,7 @@ const CalorieRecognize = {
       });
     };
     watch(chatLog, () => scrollChatBottom());
+    onBeforeUnmount(stopThinkTimer);
     const open = () => {
       visible.value = true; convId.value = ''; items.value = []; chatLog.value = [];
       chatText.value = ''; mealType.value = '午餐'; recordDate.value = todayStr();
@@ -820,7 +832,7 @@ const CalorieRecognize = {
       if (files.length > 9) { ElMessage.warning('一次最多 9 张'); return; }
       await analyze(files);
     };
-    /* 读取 SSE 流：delta 事件累计到 thinking（实时进度），done 事件返回最终结果，error 抛错 */
+    /* 读取 SSE 流：done 事件返回最终结果，error 抛错；delta 增量不透出，界面只显示思考计时 */
     const readSse = async (resp, onDone) => {
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
@@ -836,8 +848,8 @@ const CalorieRecognize = {
           if (!s.startsWith('data:')) continue;
           try {
             const evt = JSON.parse(s.slice(5).trim());
-            if (evt.t !== undefined) thinking.value += evt.t;
-            else if (evt.items !== undefined) { thinking.value = ''; onDone(evt); }
+            if (evt.t !== undefined) { /* 思考/正文增量不展示 */ }
+            else if (evt.items !== undefined) onDone(evt);
             else if (evt.error !== undefined || (evt.msg && !evt.convId)) throw new Error(evt.error || evt.msg || '识别失败');
           } catch (e) {
             if (e instanceof SyntaxError) continue; // 半行 JSON，跳过
@@ -849,7 +861,7 @@ const CalorieRecognize = {
     const analyze = async files => {
       analyzing.value = true;
       stage.value = 'ai';
-      thinking.value = '图片已上传，等待 AI 响应…';
+      startThinkTimer();
       try {
         const fd = new FormData();
         files.forEach(f => fd.append('files', f));
@@ -875,7 +887,6 @@ const CalorieRecognize = {
             if (!retried && String(err.message || '').includes('429')) {
               retried = true;
               ElMessage.warning('AI 接口请求太频繁（限流），20 秒后自动重试…');
-              thinking.value = '限流等待中，20 秒后自动重试…';
               await new Promise(r => setTimeout(r, 20000));
               continue;
             }
@@ -883,7 +894,7 @@ const CalorieRecognize = {
           }
         }
       } catch (err) { ElMessage.error('识别请求失败：' + err.message); }
-      finally { analyzing.value = false; stage.value = ''; thinking.value = ''; }
+      finally { analyzing.value = false; stage.value = ''; stopThinkTimer(); }
     };
     /* 每轮 AI 返回的都是修正后的全量列表：整体替换 + 把追问（配料表/营养成分表需补充份量）追加进对话区。
        与上一轮按「食物|重量|热量」对比，变动项标红；记录千卡/克比，改重量时热量联动 */
@@ -923,7 +934,7 @@ const CalorieRecognize = {
       chatLog.value.push({ role: 'user', text: msg });
       chatText.value = '';
       chatting.value = true;
-      thinking.value = '已发送，等待 AI 响应…';
+      startThinkTimer();
       try {
         const resp = await fetch(API_BASE + '/diet/recognize/chat/stream', {
           method: 'POST',
@@ -938,7 +949,7 @@ const CalorieRecognize = {
           acceptResult(j.data);
         }
       } catch (e) { ElMessage.error('请求失败：' + e.message); }
-      finally { chatting.value = false; thinking.value = ''; }
+      finally { chatting.value = false; stopThinkTimer(); }
     };
     const validItems = computed(() => items.value.filter(r => !r.error && r.food && Number(r.calories) > 0));
     const totalCal = computed(() => validItems.value.reduce((s, r) => s + Number(r.calories || 0), 0));
@@ -961,7 +972,7 @@ const CalorieRecognize = {
       finally { saving.value = false; }
     };
     return { visible, items, chatLog, analyzing, stage, chatting, chatText, mealType, recordDate,
-             saving, thinking, chatBox, open, pickFiles, sendChat, validItems, totalCal, removeItem, confirmSave,
+             saving, thinkingSec, chatBox, open, pickFiles, sendChat, validItems, totalCal, removeItem, confirmSave,
              onAmountChange, onCalChange };
   },
   template: `
@@ -1005,9 +1016,9 @@ const CalorieRecognize = {
           </span>
         </div>
         <div v-if="!chatLog.length" style="color:#c0c4cc;font-size:13px;text-align:center;padding:14px 0">识别不准？用一句话告诉 AI，如“那不是米饭，是面条”“我吃的是 300 克”</div>
-        <div v-if="thinking" style="text-align:left;margin:6px 0">
+        <div v-if="thinkingSec !== null" style="text-align:left;margin:6px 0">
           <span style="display:inline-block;background:#f4f4f5;border:1px dashed #c8c9cc;color:#909399;padding:6px 12px;border-radius:10px;font-size:13px;max-width:95%;word-break:break-all">
-            AI 思考中… {{ thinking.length > 120 ? thinking.slice(-120) : thinking }}
+            AI 已思考 {{ thinkingSec }} 秒…
           </span>
         </div>
       </div>

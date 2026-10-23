@@ -152,12 +152,7 @@ public class KimiAiImpl implements AiInterface {
                         continue;
                     }
                     JsonNode deltaObj = choices.get(0).path("delta");
-                    // 思考阶段（reasoning_content）在正文前可能持续十几秒，原样透出给前端做实时进度，
-                    // 否则这段空白期用户以为卡死；解析只用正文 content
-                    JsonNode reasoning = deltaObj.path("reasoning_content");
-                    if (reasoning.isTextual() && onDelta != null) {
-                        onDelta.accept(reasoning.asText());
-                    }
+                    // 思考阶段（reasoning_content）不透给前端：产品要求只展示计时，不展示思考内容
                     JsonNode delta = deltaObj.path("content");
                     if (delta.isTextual()) {
                         String d = delta.asText();
