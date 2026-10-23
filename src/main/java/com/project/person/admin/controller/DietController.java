@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -149,6 +150,70 @@ public class DietController {
             return Result.error(e.getCode(), e.getMessage());
         } catch (Exception e) {
             return Result.error(500, e.getMessage());
+        }
+    }
+
+    /**
+     * 图片识别（流式 SSE）：识别过程中持续推送增量文本（事件 delta），
+     * 完成推送 done（含 convId 与全量食物清单），失败推送 error。前端实时显示 AI 生成进度。
+     */
+    @PostMapping("/recognize/stream")
+    public SseEmitter recognizeStream(
+            @RequestParam("files") org.springframework.web.multipart.MultipartFile[] files) {
+        SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
+        new Thread(() -> {
+            try {
+                CalorieRecognizeService.RecognizeResult r =
+                        calorieRecognizeService.recognize(files, delta -> sendSse(emitter, "delta", delta));
+                sendSse(emitter, "done", r);
+            } catch (Exception e) {
+                sendSse(emitter, "error", e.getMessage() == null ? "识别失败" : e.getMessage());
+            } finally {
+                emitter.complete();
+            }
+        }, "diet-recognize-stream").start();
+        return emitter;
+    }
+
+    /**
+     * 对话修正（流式 SSE）：同 /recognize/chat，增量文本实时推送。
+     */
+    @PostMapping("/recognize/chat/stream")
+    public SseEmitter recognizeChatStream(
+            @RequestBody java.util.Map<String, Object> body) {
+        SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
+        new Thread(() -> {
+            try {
+                Object convId = body == null ? null : body.get("convId");
+                Object message = body == null ? null : body.get("message");
+                CalorieRecognizeService.RecognizeResult r = calorieRecognizeService.chat(
+                        convId == null ? null : convId.toString(),
+                        message == null ? null : message.toString(),
+                        delta -> sendSse(emitter, "delta", delta));
+                sendSse(emitter, "done", r);
+            } catch (Exception e) {
+                sendSse(emitter, "error", e.getMessage() == null ? "识别失败" : e.getMessage());
+            } finally {
+                emitter.complete();
+            }
+        }, "diet-chat-stream").start();
+        return emitter;
+    }
+
+    private static final long STREAM_TIMEOUT_MS = 300_000L;
+
+    /** SSE 推送：delta 事件把增量文本包一层 JSON，避免裸字符串序列化歧义 */
+    private void sendSse(SseEmitter emitter, String event, Object data) {
+        try {
+            if ("delta".equals(event) || "error".equals(event)) {
+                emitter.send(SseEmitter.event().name(event)
+                        .data(java.util.Collections.singletonMap(event.equals("delta") ? "t" : "error", data)));
+            } else {
+                emitter.send(SseEmitter.event().name(event).data(data));
+            }
+        } catch (Exception e) {
+            // 客户端断开等场景：中断后续推送
+            throw new RuntimeException(e);
         }
     }
 }

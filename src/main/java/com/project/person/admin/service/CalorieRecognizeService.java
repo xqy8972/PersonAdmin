@@ -81,6 +81,13 @@ public class CalorieRecognizeService {
      * 返回会话 ID 与识别结果；不落库，用户确认修正后再走正常创建。
      */
     public RecognizeResult recognize(MultipartFile[] files) {
+        return recognize(files, null);
+    }
+
+    /**
+     * 图片识别（流式）：onDelta 非空时走 SSE 增量输出，边生成边把增量文本回调出去（实时进度）。
+     */
+    public RecognizeResult recognize(MultipartFile[] files, java.util.function.Consumer<String> onDelta) {
         if (files == null || files.length == 0) {
             throw BizException.badRequest("请选择要识别的图片");
         }
@@ -107,7 +114,7 @@ public class CalorieRecognizeService {
         String prompt = images.size() > 1
                 ? "以下是 " + images.size() + " 张食物/营养成分相关图片（可能是同一餐的不同食物，也可能是配料表/营养成分表），请逐一识别："
                 : "请识别这张图片中的食物或营养成分信息：";
-        return runFirstTurn(prompt, images);
+        return runFirstTurn(prompt, images, onDelta);
     }
 
     /**
@@ -143,6 +150,14 @@ public class CalorieRecognizeService {
      * convId 为 null/空时视为以纯文字开启新会话。
      */
     public RecognizeResult chat(String convId, String message) {
+        return chat(convId, message, null);
+    }
+
+    /**
+     * 对话修正（流式）：onDelta 非空时走 SSE 增量输出，增量文本实时回调给前端。
+     */
+    public RecognizeResult chat(String convId, String message,
+                                java.util.function.Consumer<String> onDelta) {
         if (message == null || message.trim().isEmpty()) {
             throw BizException.badRequest("请输入要修改/补充的内容");
         }
@@ -158,7 +173,7 @@ public class CalorieRecognizeService {
         state.turns.add(AiChatTurn.user(message.trim(), null));
         String resp;
         try {
-            resp = aiFacade.chat(AiAbility.ANALYZE_CALORIE_BY_PIC, state.turns);
+            resp = callAi(state.turns, onDelta);
         } catch (Exception e) {
             // 失败的轮次不进历史，避免污染上下文
             state.turns.remove(state.turns.size() - 1);
@@ -175,13 +190,18 @@ public class CalorieRecognizeService {
 
     /** 首轮：建立新会话，user 轮（图片+文字）→ AI → assistant 轮入库 */
     private RecognizeResult runFirstTurn(String prompt, List<String> images) {
+        return runFirstTurn(prompt, images, null);
+    }
+
+    private RecognizeResult runFirstTurn(String prompt, List<String> images,
+                                         java.util.function.Consumer<String> onDelta) {
         Long userId = UserContext.getUserId();
         String id = UUID.randomUUID().toString().replace("-", "");
         ConvState state = new ConvState();
         state.turns.add(AiChatTurn.user(prompt, images));
         String resp;
         try {
-            resp = aiFacade.chat(AiAbility.ANALYZE_CALORIE_BY_PIC, state.turns);
+            resp = callAi(state.turns, onDelta);
         } catch (Exception e) {
             state.turns.remove(state.turns.size() - 1);
             throw e;
@@ -192,6 +212,14 @@ public class CalorieRecognizeService {
         log.info("饮食识别首轮 conv={} userId={} images={} 返回 {} 种食物", id, userId,
                 images == null ? 0 : images.size(), items.size());
         return new RecognizeResult(id, items);
+    }
+
+    /** onDelta 为空走一次性调用；非空走流式（SSE 增量实时回调），返回完整文本 */
+    private String callAi(List<AiChatTurn> turns, java.util.function.Consumer<String> onDelta) {
+        if (onDelta == null) {
+            return aiFacade.chat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns);
+        }
+        return aiFacade.streamChat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns, onDelta);
     }
 
     /** 读取并校验会话归属：key 带 userId，拿到别人的会话直接视为不存在，天然防越权 */

@@ -38,4 +38,15 @@ public class AiFacade {
                 turns == null ? 0 : turns.size());
         return ai.chat(ability, turns);
     }
+
+    /**
+     * 流式多轮对话：模型边生成边把增量文本交给 onDelta（用于前端实时进度），
+     * 返回值与非流式一致，为完整结果文本。实现不支持流式时由调用方回退 {@link #chat}。
+     */
+    public String streamChat(AiAbility ability, List<AiChatTurn> turns,
+                             java.util.function.Consumer<String> onDelta) {
+        log.debug("AI 流式对话 [{}] via {}, turns={}", ability.name(), ai.name(),
+                turns == null ? 0 : turns.size());
+        return ai.streamChat(ability, turns, onDelta);
+    }
 }

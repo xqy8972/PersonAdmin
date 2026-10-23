@@ -794,6 +794,7 @@ const CalorieRecognize = {
     const stage = ref(''); // 'ocr' 本地文字提取 / 'ai' AI 解析
     const chatting = ref(false);
     const chatText = ref('');
+    const thinking = ref(''); // AI 流式生成中的实时文本（思考进度）
     const mealType = ref('午餐');
     const recordDate = ref(todayStr());
     const saving = ref(false);
@@ -811,22 +812,54 @@ const CalorieRecognize = {
       if (files.length > 9) { ElMessage.warning('一次最多 9 张'); return; }
       await analyze(files);
     };
+    /* 读取 SSE 流：delta 事件累计到 thinking（实时进度），done 事件返回最终结果，error 抛错 */
+    const readSse = async (resp, onDone) => {
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          const s = line.trim();
+          if (!s.startsWith('data:')) continue;
+          try {
+            const evt = JSON.parse(s.slice(5).trim());
+            if (evt.t !== undefined) thinking.value += evt.t;
+            else if (evt.items !== undefined) { thinking.value = ''; onDone(evt); }
+            else if (evt.error !== undefined || (evt.msg && !evt.convId)) throw new Error(evt.error || evt.msg || '识别失败');
+          } catch (e) {
+            if (e instanceof SyntaxError) continue; // 半行 JSON，跳过
+            throw e;
+          }
+        }
+      }
+    };
     const analyze = async files => {
       analyzing.value = true;
       stage.value = 'ai';
+      thinking.value = '';
       try {
         const fd = new FormData();
         files.forEach(f => fd.append('files', f));
-        const resp = await fetch(API_BASE + '/diet/recognize', {
+        const resp = await fetch(API_BASE + '/diet/recognize/stream', {
           method: 'POST',
           headers: { Authorization: 'Bearer ' + store.get('token') },
           body: fd
         });
-        const j = await resp.json();
-        if (j.code !== 200) { ElMessage.error(j.msg || '识别失败'); return; }
-        acceptResult(j.data);
+        if ((resp.headers.get('content-type') || '').includes('text/event-stream')) {
+          await readSse(resp, evt => acceptResult(evt));
+        } else {
+          // 流式不可用时回退普通接口
+          const j = await resp.json();
+          if (j.code !== 200) { ElMessage.error(j.msg || '识别失败'); return; }
+          acceptResult(j.data);
+        }
       } catch (err) { ElMessage.error('识别请求失败：' + err.message); }
-      finally { analyzing.value = false; stage.value = ''; }
+      finally { analyzing.value = false; stage.value = ''; thinking.value = ''; }
     };
     /* 每轮 AI 返回的都是修正后的全量列表：整体替换 + 把追问（配料表/营养成分表需补充份量）追加进对话区。
        与上一轮按「食物|重量|热量」对比，变动项标红；记录千卡/克比，改重量时热量联动 */
@@ -866,17 +899,22 @@ const CalorieRecognize = {
       chatLog.value.push({ role: 'user', text: msg });
       chatText.value = '';
       chatting.value = true;
+      thinking.value = '';
       try {
-        const resp = await fetch(API_BASE + '/diet/recognize/chat', {
+        const resp = await fetch(API_BASE + '/diet/recognize/chat/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('token') },
           body: JSON.stringify({ convId: convId.value || null, message: msg })
         });
-        const j = await resp.json();
-        if (j.code !== 200) { ElMessage.error(j.msg || '修改失败'); return; }
-        acceptResult(j.data);
+        if ((resp.headers.get('content-type') || '').includes('text/event-stream')) {
+          await readSse(resp, evt => acceptResult(evt));
+        } else {
+          const j = await resp.json();
+          if (j.code !== 200) { ElMessage.error(j.msg || '修改失败'); return; }
+          acceptResult(j.data);
+        }
       } catch (e) { ElMessage.error('请求失败：' + e.message); }
-      finally { chatting.value = false; }
+      finally { chatting.value = false; thinking.value = ''; }
     };
     const validItems = computed(() => items.value.filter(r => !r.error && r.food && Number(r.calories) > 0));
     const totalCal = computed(() => validItems.value.reduce((s, r) => s + Number(r.calories || 0), 0));
@@ -899,7 +937,7 @@ const CalorieRecognize = {
       finally { saving.value = false; }
     };
     return { visible, items, chatLog, analyzing, stage, chatting, chatText, mealType, recordDate,
-             saving, open, pickFiles, sendChat, validItems, totalCal, removeItem, confirmSave,
+             saving, thinking, open, pickFiles, sendChat, validItems, totalCal, removeItem, confirmSave,
              onAmountChange, onCalChange };
   },
   template: `
@@ -943,6 +981,11 @@ const CalorieRecognize = {
           </span>
         </div>
         <div v-if="!chatLog.length" style="color:#c0c4cc;font-size:12px;text-align:center">识别不准？用一句话告诉 AI，如“那不是米饭，是面条”“我吃的是 300 克”</div>
+        <div v-if="thinking" style="text-align:left;margin:4px 0">
+          <span style="display:inline-block;background:#f4f4f5;border:1px dashed #c8c9cc;color:#909399;padding:4px 10px;border-radius:10px;font-size:12px;max-width:95%;word-break:break-all">
+            AI 思考中… {{ thinking.length > 120 ? thinking.slice(-120) : thinking }}
+          </span>
+        </div>
       </div>
       <div style="display:flex;gap:8px">
         <el-input v-model="chatText" size="small" placeholder="向AI描述/修正/补充"
@@ -1725,6 +1768,24 @@ const AssetPage = {
 const mealTagType = t => ({ '早餐': 'primary', '午餐': 'warning', '晚餐': 'danger', '加餐': 'success' }[t] || 'info');
 /* AI 识别饮食落库的 food 格式为「食物 重量g 热量千卡」逗号分隔（多食物一条记录），展示端按逗号拆行 */
 const foodLines = f => String(f || '').split(/[，,]/).map(s => s.trim()).filter(Boolean);
+/* 把 food 字段解析为每种食物 {name, grams, kcal}；兼容旧格式纯文本（无重量/热量信息，kcal 为 null） */
+const parseFoods = food => {
+  return String(food || '').split(/[，,]/).map(s => s.trim()).filter(Boolean).map(seg => {
+    const m = seg.match(/^(.*?)\s*(?:(\d+(?:\.\d+)?)g\s+)?(\d+)\s*千卡$/);
+    if (m) return { name: (m[1] || '').trim(), grams: m[2] ? Number(m[2]) : null, kcal: Number(m[3]) };
+    return { name: seg, grams: null, kcal: null };
+  });
+};
+/* 每种食物拼回落库格式「名称 重量g 热量千卡」，逗号分隔 */
+const buildFoodStr = foods => foods
+  .map(f => [f.name, f.grams ? f.grams + 'g' : '', (f.kcal !== null && f.kcal !== undefined && f.kcal !== '') ? f.kcal + '千卡' : '']
+    .filter(Boolean).join(' '))
+  .join('，');
+/* 总热量：各食物热量求和；都未填时回退原记录热量 */
+const totalKcal = (foods, fallback) => {
+  const ks = foods.map(f => Number(f.kcal)).filter(v => Number.isFinite(v) && v > 0);
+  return ks.length ? Math.round(ks.reduce((s, v) => s + v, 0)) : (fallback || 0);
+};
 
 /* ---------------- 体重走势图（时间范围可选，默认近2周） ---------------- */
 const WeightTrendChart = {
@@ -1918,22 +1979,42 @@ const WeightPage = {
         ElMessage.success('删除成功'); loadW(); window.dispatchEvent(new Event('pm-data-changed'));
       } catch (e) {}
     };
-    const dOpen = row => { dForm.value = row ? Object.assign({}, row) : { id: null, recordDate: todayStr(), mealType: '午餐', food: '', calories: null }; dDialog.value = true; };
+    /* 饮食编辑：food 字段按每种食物解析进弹窗（与 AI 识别结果列表同款交互），保存时拼回 */
+    const emptyFood = () => ({ name: '', grams: null, kcal: null });
+    const dOpen = row => {
+      dForm.value = row
+        ? { id: row.id, recordDate: row.recordDate, mealType: row.mealType,
+            foods: parseFoods(row.food), origCal: row.calories }
+        : { id: null, recordDate: todayStr(), mealType: '午餐', foods: [emptyFood()], origCal: 0 };
+      dDialog.value = true;
+    };
+    const dAddFood = () => dForm.value.foods.push(emptyFood());
+    const dRemoveFood = fi => {
+      dForm.value.foods.splice(fi, 1);
+      if (!dForm.value.foods.length) dForm.value.foods.push(emptyFood());
+    };
     const dSave = async () => {
-      if (!dForm.value.food) { ElMessage.warning('请填写食物内容'); return; }
-      if (!(Number(dForm.value.calories) >= 0)) { ElMessage.warning('请填写热量'); return; }
+      const foods = (dForm.value.foods || []).filter(f => (f.name || '').trim());
+      if (!foods.length) { ElMessage.warning('请至少填写一种食物'); return; }
+      const payload = { recordDate: dForm.value.recordDate, mealType: dForm.value.mealType,
+                        food: buildFoodStr(foods), calories: totalKcal(foods, dForm.value.origCal) };
       try {
-        if (dForm.value.id) await apiPut('/diet/' + dForm.value.id, dForm.value);
-        else await apiPost('/diet', dForm.value);
+        if (dForm.value.id) await apiPut('/diet/' + dForm.value.id, payload);
+        else await apiPost('/diet', payload);
         ElMessage.success('保存成功'); dDialog.value = false;
         loadD(); window.dispatchEvent(new Event('pm-data-changed'));
       } catch (e) {}
     };
-    const dDel = async id => {
-      try { await ElMessageBox.confirm('确定删除该记录吗？', '提示', { type: 'warning' }); } catch (e) { return; }
+    /* 按每种食物删除：删最后一种时整条记录删除 */
+    const dDelFood = async (r, fi) => {
+      const foods = parseFoods(r.food);
+      const name = foods[fi] ? foods[fi].name : '';
+      try { await ElMessageBox.confirm(`删除「${name}」？`, '提示', { type: 'warning' }); } catch (e) { return; }
+      foods.splice(fi, 1);
       try {
-        await apiDel('/diet/' + id);
-        ElMessage.success('删除成功'); loadD(); window.dispatchEvent(new Event('pm-data-changed'));
+        if (!foods.length) await apiDel('/diet/' + r.id);
+        else await apiPut('/diet/' + r.id, { ...r, food: buildFoodStr(foods), calories: totalKcal(foods, r.calories) });
+        ElMessage.success('已删除'); loadD(); window.dispatchEvent(new Event('pm-data-changed'));
       } catch (e) {}
     };
     const dietList = computed(() => dList.value);
@@ -1941,8 +2022,8 @@ const WeightPage = {
     watch(filterDate, () => loadD());
     onMounted(() => { loadW(); loadD(); });
     return { wList, wDialog, wForm, wOpen, wSave, wDel,
-             dList, dDialog, dForm, dOpen, dSave, dDel,
-             filterDate, dietList, latest, mealTagType, fmt, foodLines };
+             dList, dDialog, dForm, dOpen, dSave, dDelFood, dAddFood, dRemoveFood,
+             filterDate, dietList, latest, mealTagType, fmt, foodLines, parseFoods };
   },
   template: `<div>
     <WeightTrendChart>
@@ -1964,35 +2045,49 @@ const WeightPage = {
         <CalorieRecognize />
         <el-button type="primary" @click="dOpen()" style="margin-left:8px">记一笔饮食</el-button>
       </div>
-      <el-table :data="dietList" stripe>
-        <el-table-column label="餐次" width="90">
-          <template #default="{ row }"><el-tag :type="mealTagType(row.mealType)" size="small">{{ row.mealType }}</el-tag></template>
-        </el-table-column>
-        <el-table-column label="食物" min-width="200">
-          <template #default="{ row }">
-            <div v-for="(line, i) in foodLines(row.food)" :key="i" style="line-height:1.7">{{ line }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="calories" label="热量（千卡）" width="140" />
-        <el-table-column label="操作" width="150">
-          <template #default="{ row }">
-            <el-button size="small" @click="dOpen(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="dDel(row.id)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div v-for="r in dietList" :key="r.id" style="border-bottom:1px solid #f2f2f2;padding:8px 0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+          <el-tag :type="mealTagType(r.mealType)" size="small">{{ r.mealType }}</el-tag>
+          <span style="color:#909399;font-size:12px">{{ r.recordDate }}</span>
+          <div style="flex:1"></div>
+          <span style="font-size:12px;color:#909399">合计</span>
+          <b style="color:#e6a23c">{{ r.calories }}</b>
+          <span style="font-size:12px;color:#909399">千卡</span>
+        </div>
+        <div v-for="(f, fi) in parseFoods(r.food)" :key="fi" style="display:flex;align-items:flex-start;gap:6px;padding:4px 0 4px 6px">
+          <div style="flex:1;min-width:0">
+            <div style="color:#1d1d1f;line-height:1.5">{{ f.name }}</div>
+            <div v-if="f.grams" style="color:#b0b0b5;font-size:11px;line-height:1.4">{{ f.grams }} g</div>
+          </div>
+          <div style="flex-shrink:0;text-align:right">
+            <div style="color:#1d1d1f;font-weight:600;line-height:1.5">{{ f.kcal != null ? f.kcal + ' 千卡' : '' }}</div>
+            <div style="display:flex;justify-content:flex-end;margin-top:2px">
+              <el-button size="small" text type="primary" @click="dOpen(r)">编辑</el-button>
+              <el-button size="small" text type="danger" style="margin-left:0" @click="dDelFood(r, fi)">删除</el-button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-if="!dietList.length" style="color:#909399;font-size:13px;text-align:center;padding:20px 0">当日暂无饮食记录</div>
     </el-card>
-    <el-dialog v-model="dDialog" :title="(dForm.id ? '编辑' : '记录') + '饮食'" width="420px">
-      <el-form label-width="90px">
+    <el-dialog v-model="dDialog" :title="(dForm.id ? '编辑' : '记录') + '饮食'" width="92%" style="max-width:460px">
+      <el-form label-width="64px">
         <el-form-item label="日期"><el-date-picker v-model="dForm.recordDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="餐次">
           <el-select v-model="dForm.mealType" style="width:100%">
             <el-option v-for="t in ['早餐','午餐','晚餐','加餐']" :key="t" :label="t" :value="t" />
           </el-select>
         </el-form-item>
-        <el-form-item label="食物"><el-input v-model="dForm.food" placeholder="如：鸡胸肉沙拉" /></el-form-item>
-        <el-form-item label="热量(千卡)"><el-input-number v-model="dForm.calories" :min="0" :precision="0" style="width:100%" controls-position="right" /></el-form-item>
       </el-form>
+      <div style="font-size:12px;color:#909399;margin:0 0 6px">食物清单（每种一行，可编辑）</div>
+      <div v-for="(f, fi) in dForm.foods" :key="fi" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+        <el-input v-model="f.name" size="small" placeholder="食物" style="flex:1;min-width:100px" />
+        <el-input-number v-model="f.grams" size="small" :min="0" :precision="0" placeholder="克" style="width:84px" controls-position="right" />
+        <span style="font-size:12px;color:#909399">g</span>
+        <el-input-number v-model="f.kcal" size="small" :min="0" :precision="0" placeholder="千卡" style="width:92px" controls-position="right" />
+        <el-button link type="danger" size="small" @click="dRemoveFood(fi)">移除</el-button>
+      </div>
+      <el-button size="small" plain style="width:100%" @click="dAddFood">+ 添加一种食物</el-button>
       <template #footer>
         <el-button @click="dDialog = false">取消</el-button>
         <el-button type="primary" @click="dSave">保存</el-button>
@@ -2047,28 +2142,51 @@ const MobileHealthPage = {
         loadW(); window.dispatchEvent(new Event('pm-data-changed'));
       } catch (e) {}
     };
-    const dOpen = row => { dForm.value = row ? Object.assign({}, row) : { id: null, recordDate: filterDate.value, mealType: '午餐', food: '', calories: null }; dDialog.value = true; };
+    /* 饮食编辑：food 字段按每种食物解析进弹窗（与 AI 识别结果列表同款交互），保存时拼回 */
+    const emptyFood = () => ({ name: '', grams: null, kcal: null });
+    const dOpen = row => {
+      dForm.value = row
+        ? { id: row.id, recordDate: row.recordDate, mealType: row.mealType,
+            foods: parseFoods(row.food), origCal: row.calories }
+        : { id: null, recordDate: filterDate.value, mealType: '午餐', foods: [emptyFood()], origCal: 0 };
+      dDialog.value = true;
+    };
+    const dAddFood = () => dForm.value.foods.push(emptyFood());
+    const dRemoveFood = fi => {
+      dForm.value.foods.splice(fi, 1);
+      if (!dForm.value.foods.length) dForm.value.foods.push(emptyFood());
+    };
     const dSave = async () => {
-      if (!dForm.value.food) { ElMessage.warning('请填写食物内容'); return; }
-      if (!(Number(dForm.value.calories) >= 0)) { ElMessage.warning('请填写热量'); return; }
+      const foods = (dForm.value.foods || []).filter(f => (f.name || '').trim());
+      if (!foods.length) { ElMessage.warning('请至少填写一种食物'); return; }
+      const payload = { recordDate: dForm.value.recordDate, mealType: dForm.value.mealType,
+                        food: buildFoodStr(foods), calories: totalKcal(foods, dForm.value.origCal) };
       try {
-        if (dForm.value.id) await apiPut('/diet/' + dForm.value.id, dForm.value);
-        else await apiPost('/diet', dForm.value);
+        if (dForm.value.id) await apiPut('/diet/' + dForm.value.id, payload);
+        else await apiPost('/diet', payload);
         ElMessage.success('保存成功'); dDialog.value = false;
         loadD(); window.dispatchEvent(new Event('pm-data-changed'));
       } catch (e) {}
     };
-    const dDel = async id => {
-      try { await ElMessageBox.confirm('确定删除该记录吗？', '提示', { type: 'warning' }); } catch (e) { return; }
-      try { await apiDel('/diet/' + id); ElMessage.success('删除成功'); loadD(); window.dispatchEvent(new Event('pm-data-changed')); } catch (e) {}
+    /* 按每种食物删除：删最后一种时整条记录删除 */
+    const dDelFood = async (r, fi) => {
+      const foods = parseFoods(r.food);
+      const name = foods[fi] ? foods[fi].name : '';
+      try { await ElMessageBox.confirm(`删除「${name}」？`, '提示', { type: 'warning' }); } catch (e) { return; }
+      foods.splice(fi, 1);
+      try {
+        if (!foods.length) await apiDel('/diet/' + r.id);
+        else await apiPut('/diet/' + r.id, { ...r, food: buildFoodStr(foods), calories: totalKcal(foods, r.calories) });
+        ElMessage.success('已删除'); loadD(); window.dispatchEvent(new Event('pm-data-changed'));
+      } catch (e) {}
     };
     const latest = computed(() => wList.value.length ? wList.value.reduce((a, b) => (a.recordDate > b.recordDate) ? a : b) : null);
     watch(filterDate, () => loadD());
     onMounted(() => { loadW(); loadD(); window.addEventListener('pm-data-changed', refreshAll); });
     onBeforeUnmount(() => window.removeEventListener('pm-data-changed', refreshAll));
     return { wList, wDialog, wForm, wOpen, wSave, refreshAll, pullReload, loadingW, loadingD,
-             dList, dDialog, dForm, dOpen, dSave, dDel,
-             filterDate, latest, dayWheelVisible, onDay, mealTagType, fmt, foodLines };
+             dList, dDialog, dForm, dOpen, dSave, dDelFood, dAddFood, dRemoveFood,
+             filterDate, latest, dayWheelVisible, onDay, mealTagType, fmt, foodLines, parseFoods };
   },
   template: `<PullRefresh :on-refresh="pullReload"><div class="m-wrap">
     <div class="m-hero" style="background:linear-gradient(135deg,#30b0c7 0%,#1f8fb5 55%,#1a7ba0 100%);box-shadow:0 10px 26px rgba(31,143,181,.35)">
@@ -2088,17 +2206,26 @@ const MobileHealthPage = {
         <span class="m-sec-title">饮食记录</span>
         <span class="m-sec-more" @click="dayWheelVisible = true">{{ filterDate }}<el-icon :size="12"><ArrowDown /></el-icon></span>
       </div>
-      <div class="m-line" v-for="r in dList" :key="r.id">
-        <el-tag :type="mealTagType(r.mealType)" size="small" effect="plain" style="flex-shrink:0">{{ r.mealType }}</el-tag>
-        <div class="m-line-main">
-          <div class="m-line-name">
-            <div v-for="(line, i) in foodLines(r.food)" :key="i">{{ line }}</div>
-          </div>
-          <div class="m-line-sub">{{ r.calories }} 千卡</div>
+      <div v-for="r in dList" :key="r.id" style="border-bottom:1px solid #f5f5f7;padding:8px 0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+          <el-tag :type="mealTagType(r.mealType)" size="small" effect="plain">{{ r.mealType }}</el-tag>
+          <span style="color:#86868b;font-size:11px">{{ r.recordDate }}</span>
+          <div style="flex:1"></div>
+          <b style="color:#e6a23c;font-size:13px">{{ r.calories }}</b>
+          <span style="color:#86868b;font-size:11px">千卡</span>
         </div>
-        <div style="display:flex;gap:2px;flex-shrink:0">
-          <el-button size="small" text type="primary" @click="dOpen(r)">编辑</el-button>
-          <el-button size="small" text type="danger" @click="dDel(r.id)">删除</el-button>
+        <div v-for="(f, fi) in parseFoods(r.food)" :key="fi" style="display:flex;align-items:flex-start;gap:6px;padding:4px 0 4px 2px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;color:#1d1d1f;line-height:1.5">{{ f.name }}</div>
+            <div v-if="f.grams" style="font-size:11px;color:#b0b0b5;line-height:1.4">{{ f.grams }} g</div>
+          </div>
+          <div style="flex-shrink:0;text-align:right">
+            <div style="font-size:13px;font-weight:600;color:#1d1d1f;line-height:1.5">{{ f.kcal != null ? f.kcal + ' 千卡' : '' }}</div>
+            <div style="display:flex;justify-content:flex-end;margin-top:2px">
+              <el-button size="small" text type="primary" @click="dOpen(r)">编辑</el-button>
+              <el-button size="small" text type="danger" style="margin-left:0" @click="dDelFood(r, fi)">删除</el-button>
+            </div>
+          </div>
         </div>
       </div>
       <div v-if="!dList.length" class="m-empty">当日暂无饮食记录</div>
@@ -2129,9 +2256,16 @@ const MobileHealthPage = {
             <el-option v-for="t in ['早餐','午餐','晚餐','加餐']" :key="t" :label="t" :value="t" />
           </el-select>
         </el-form-item>
-        <el-form-item label="食物"><el-input v-model="dForm.food" placeholder="如：鸡胸肉沙拉" /></el-form-item>
-        <el-form-item label="热量"><el-input-number v-model="dForm.calories" :min="0" :precision="0" style="width:100%" controls-position="right" /><span style="margin-left:8px;color:#86868b">千卡</span></el-form-item>
       </el-form>
+      <div style="font-size:12px;color:#86868b;margin:0 0 6px">食物清单（每种一行，可编辑）</div>
+      <div v-for="(f, fi) in dForm.foods" :key="fi" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+        <el-input v-model="f.name" size="small" placeholder="食物" style="flex:1;min-width:100px" />
+        <el-input-number v-model="f.grams" size="small" :min="0" :precision="0" placeholder="克" style="width:84px" controls-position="right" />
+        <span style="font-size:12px;color:#86868b">g</span>
+        <el-input-number v-model="f.kcal" size="small" :min="0" :precision="0" placeholder="千卡" style="width:92px" controls-position="right" />
+        <el-button link type="danger" size="small" @click="dRemoveFood(fi)">移除</el-button>
+      </div>
+      <el-button size="small" plain style="width:100%" @click="dAddFood">+ 添加一种食物</el-button>
       <template #footer>
         <el-button @click="dDialog = false">取消</el-button>
         <el-button type="primary" @click="dSave">保存</el-button>

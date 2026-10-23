@@ -25,6 +25,15 @@ public interface AiInterface {
      */
     String chat(AiAbility ability, List<AiChatTurn> turns);
 
+    /**
+     * 流式多轮对话：模型边生成边通过 onDelta 吐出增量文本，方法返回完整结果。
+     * 不支持流式的实现可保留默认抛异常，业务层回退 {@link #chat(AiAbility, List)}。
+     */
+    default String streamChat(AiAbility ability, List<AiChatTurn> turns,
+                              java.util.function.Consumer<String> onDelta) {
+        throw new UnsupportedOperationException(name() + " 不支持流式输出");
+    }
+
     /** 实现标识（日志用），如 kimi */
     String name();
 }
