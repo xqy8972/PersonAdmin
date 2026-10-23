@@ -802,20 +802,8 @@ const CalorieRecognize = {
       visible.value = true; convId.value = ''; items.value = []; chatLog.value = [];
       chatText.value = ''; mealType.value = '午餐'; recordDate.value = todayStr();
     };
-    /* 本地 OCR 预提取（tesseract.js 懒加载；chi_sim+eng）：先出文本再交 AI，更快；
-       worker 只建一次复用；OCR 不可用时回退图片直传 */
-    let ocrWorker = null;
-    let ocrLoading = false;
-    const ocrQueue = [];
-    const ensureOcrWorker = () => {
-      if (ocrWorker) return Promise.resolve(ocrWorker);
-      if (ocrLoading) return new Promise(res => ocrQueue.push(res));
-      ocrLoading = true;
-      return import('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.esm.min.js')
-        .then(mod => mod.createWorker('chi_sim+eng'))
-        .then(w => { ocrWorker = w; ocrQueue.splice(0).forEach(res => res(w)); return w; })
-        .catch(e => { ocrLoading = false; throw e; });
-    };
+    /* 直传图片识别（不走 OCR）：食物照片 OCR 提取慢且常失败，后端会先压缩到长边1280
+       （通常<300KB）再调 AI，直传反而是最短路径；文本描述走下方对话框 */
     const pickFiles = async e => {
       const files = Array.from(e.target.files || []);
       e.target.value = '';
@@ -825,29 +813,10 @@ const CalorieRecognize = {
     };
     const analyze = async files => {
       analyzing.value = true;
-      stage.value = 'ocr';
+      stage.value = 'ai';
       try {
-        try {
-          const worker = await ensureOcrWorker();
-          const texts = (await Promise.all(files.map(f =>
-            worker.recognize(f).then(r => ((r.data && r.data.text) || '').trim())))).filter(Boolean);
-          if (texts.length) {
-            stage.value = 'ai';
-            const resp = await fetch(API_BASE + '/diet/recognize-text', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('token') },
-              body: JSON.stringify({ texts })
-            });
-            const j = await resp.json();
-            if (j.code !== 200) { ElMessage.error(j.msg || '识别失败'); return; }
-            acceptResult(j.data);
-            return;
-          }
-          ElMessage.warning('本地 OCR 未提取到文字，已改为直接上传图片识别');
-        } catch (e) { console.warn('OCR 不可用，回退为图片直传', e); }
         const fd = new FormData();
         files.forEach(f => fd.append('files', f));
-        stage.value = 'ai';
         const resp = await fetch(API_BASE + '/diet/recognize', {
           method: 'POST',
           headers: { Authorization: 'Bearer ' + store.get('token') },
@@ -941,7 +910,7 @@ const CalorieRecognize = {
           {{ analyzing ? (stage === 'ocr' ? '本地提取文字中…' : 'AI 识别中…') : '拍照/选图（可多选）' }}
         </el-button>
         <input ref="fileInput" type="file" accept="image/*" multiple style="display:none" @change="pickFiles" />
-        <span style="color:#909399;font-size:12px">支持食物照片、配料表、营养成分表，也可直接在下方用文字描述</span>
+        <span style="color:#909399;font-size:12px">支持食物照片、配料表、营养成分表（一次最多9张），也可直接在下方用文字描述</span>
       </div>
       <div v-if="items.length" style="border:1px solid #ebeef5;border-radius:8px;padding:8px 10px;margin-bottom:10px">
         <div v-for="r in items" :key="r._key"

@@ -38,7 +38,7 @@ public class KimiAiImpl implements AiInterface {
     @Value("${moonshot.api-key:}")
     private String apiKey;
 
-    @Value("${moonshot.model:kimi-k2.6}")
+    @Value("${moonshot.model:kimi-k3}")
     private String model;
 
     @Autowired

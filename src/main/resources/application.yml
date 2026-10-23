@@ -48,7 +48,8 @@ mybatis:
 # KIMI_API_KEY（本机 kimi 桌面端注入的是 agent 网关 key，直接调 api.moonshot.cn 会 401）
 moonshot:
   api-key: ${MOONSHOT_API_KEY:sk-mtZQmvBkYINqTVQzrk880RYNmsYcVfMLP5wCrSpxYsZZstVl}
-  model: kimi-k2.6
+  # 视觉识别模型：kimi-k3 比推理模型 k2.6 快一倍（实测识图 14s vs 20-30s）
+  model: ${MOONSHOT_MODEL:kimi-k3}
 
 logging:
   level:
