@@ -1007,9 +1007,6 @@ const CalorieRecognize = {
     <el-button type="success" plain @click="open">AI识别热量</el-button>
     <el-dialog v-model="visible" title="AI 识别热量" width="94%" style="max-width:720px" top="4vh">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-        <el-button type="primary" plain size="small" :loading="analyzing" @click="$refs.fileInput.click()">
-          {{ analyzing ? (stage === 'ocr' ? '本地提取文字中…' : 'AI 识别中…') : '拍照/选图（可多选）' }}
-        </el-button>
         <input ref="fileInput" type="file" accept="image/*" multiple style="display:none" @change="pickFiles" />
         <span style="color:#909399;font-size:12px">支持食物照片、配料表、营养成分表（一次最多9张），也可直接在下方用文字描述</span>
       </div>
@@ -1052,21 +1049,23 @@ const CalorieRecognize = {
           </span>
         </div>
       </div>
-      <div style="display:flex;gap:8px">
-        <el-input v-model="chatText" size="small" placeholder="向AI描述/修正/补充"
-                  @keyup.enter="sendChat" :disabled="chatting" />
-        <el-button type="primary" size="small" :loading="chatting" :disabled="!chatText.trim() || chatting" @click="sendChat">
+      <div style="display:flex;gap:8px;align-items:center">
+        <el-button type="primary" plain :disabled="analyzing" @click="$refs.fileInput.click()">拍照</el-button>
+        <el-input v-model="chatText" placeholder="向AI描述/修正/补充"
+                  @keyup.enter="sendChat" :disabled="chatting" style="flex:1" />
+        <el-button type="primary" :loading="chatting" :disabled="!chatText.trim() || chatting" @click="sendChat">
           {{ chatting ? 'AI 思考中…' : '发送' }}
         </el-button>
       </div>
       <template #footer>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-          <el-date-picker v-model="recordDate" type="date" value-format="YYYY-MM-DD" size="small" style="width:140px" :clearable="false" />
-          <el-select v-model="mealType" size="small" style="width:96px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <el-date-picker v-model="recordDate" type="date" value-format="YYYY-MM-DD" size="small" style="width:110px" :clearable="false" />
+          <el-select v-model="mealType" size="small" style="width:110px">
             <el-option v-for="t in ['早餐','午餐','晚餐','加餐']" :key="t" :label="t" :value="t" />
           </el-select>
-          <el-button @click="visible = false">取消</el-button>
-          <el-button type="primary" :loading="saving" :disabled="!validItems.length" @click="confirmSave">
+          <div style="flex:1"></div>
+          <el-button size="small" @click="visible = false">取消</el-button>
+          <el-button type="primary" size="small" :loading="saving" :disabled="!validItems.length" @click="confirmSave">
             确认记饮食（{{ validItems.length }} 种，共 {{ totalCal }} 千卡）
           </el-button>
         </div>
