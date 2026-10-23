@@ -52,6 +52,20 @@ moonshot:
   # kimi-k2.6 14.8s/总17s 且识别质量好，默认用 k2.6（可用 MOONSHOT_MODEL 环境变量覆盖）
   model: ${MOONSHOT_MODEL:kimi-k2.6}
 
+ai:
+  vision:
+    # AI 提供方：kimi（默认）| openai-compat（更快的第三方视觉模型，需配下面三项）
+    # 实测 Moonshot 视觉接口首 token 12~27s 波动（平台排队），要 10s 以内建议切 openai-compat：
+    #   SiliconFlow（免费额度）：AI_VISION_PROVIDER=openai-compat
+    #     AI_VISION_BASE_URL=https://api.siliconflow.cn/v1
+    #     AI_VISION_API_KEY=sk-xxx  AI_VISION_MODEL=Qwen/Qwen2.5-VL-7B-Instruct
+    #   阿里百炼：AI_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+    #     AI_VISION_API_KEY=sk-xxx  AI_VISION_MODEL=qwen-vl-max
+    provider: ${AI_VISION_PROVIDER:kimi}
+    base-url: ${AI_VISION_BASE_URL:}
+    api-key: ${AI_VISION_API_KEY:}
+    model: ${AI_VISION_MODEL:}
+
 logging:
   level:
     com.project.person.mapper: debug

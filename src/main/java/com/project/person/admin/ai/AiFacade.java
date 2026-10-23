@@ -4,13 +4,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 /**
  * AI 调用门面（对标缓存的 CacheFacade）：业务代码只依赖本类。
- * 后续更换模型/厂商，只需改下面 @Qualifier 指向的实现（或做成配置项切换）。
+ * 通过 ai.vision.provider 配置切换实现：kimi（默认）或 openai-compat（SiliconFlow/百炼等，
+ * 配置 ai.vision.base-url / api-key / model），换厂商业务零改动。
  */
 @Service
 public class AiFacade {
@@ -19,12 +21,25 @@ public class AiFacade {
 
     @Autowired
     @Qualifier("kimiAiImpl")
-    private AiInterface ai;
+    private AiInterface kimi;
+
+    @Autowired
+    @Qualifier("openAiCompatAiImpl")
+    private AiInterface openAiCompat;
+
+    /** 视觉/对话模型提供方：kimi（默认）| openai-compat */
+    @Value("${ai.vision.provider:kimi}")
+    private String provider;
+
+    private AiInterface current() {
+        return "openai-compat".equalsIgnoreCase(provider) ? openAiCompat : kimi;
+    }
 
     /**
      * 调用指定 AI 能力。prompt 模板由能力枚举对应的 md 文件提供（classpath 相对路径）。
      */
     public String chat(AiAbility ability, String userPrompt, List<String> images) {
+        AiInterface ai = current();
         log.debug("AI 能力调用 [{}] via {}, images={}", ability.name(), ai.name(),
                 images == null ? 0 : images.size());
         return ai.chat(ability, userPrompt, images);
@@ -34,6 +49,7 @@ public class AiFacade {
      * 多轮对话调用（首轮/修正轮共用）：turns 为完整历史（含图片），由实现组装上下文。
      */
     public String chat(AiAbility ability, List<AiChatTurn> turns) {
+        AiInterface ai = current();
         log.debug("AI 多轮对话 [{}] via {}, turns={}", ability.name(), ai.name(),
                 turns == null ? 0 : turns.size());
         return ai.chat(ability, turns);
@@ -45,6 +61,7 @@ public class AiFacade {
      */
     public String streamChat(AiAbility ability, List<AiChatTurn> turns,
                              java.util.function.Consumer<String> onDelta) {
+        AiInterface ai = current();
         log.debug("AI 流式对话 [{}] via {}, turns={}", ability.name(), ai.name(),
                 turns == null ? 0 : turns.size());
         return ai.streamChat(ability, turns, onDelta);
