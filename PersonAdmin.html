@@ -849,7 +849,7 @@ const CalorieRecognize = {
     const analyze = async files => {
       analyzing.value = true;
       stage.value = 'ai';
-      thinking.value = '';
+      thinking.value = '图片已上传，等待 AI 响应…';
       try {
         const fd = new FormData();
         files.forEach(f => fd.append('files', f));
@@ -875,7 +875,7 @@ const CalorieRecognize = {
             if (!retried && String(err.message || '').includes('429')) {
               retried = true;
               ElMessage.warning('AI 接口请求太频繁（限流），20 秒后自动重试…');
-              thinking.value = '';
+              thinking.value = '限流等待中，20 秒后自动重试…';
               await new Promise(r => setTimeout(r, 20000));
               continue;
             }
@@ -923,7 +923,7 @@ const CalorieRecognize = {
       chatLog.value.push({ role: 'user', text: msg });
       chatText.value = '';
       chatting.value = true;
-      thinking.value = '';
+      thinking.value = '已发送，等待 AI 响应…';
       try {
         const resp = await fetch(API_BASE + '/diet/recognize/chat/stream', {
           method: 'POST',

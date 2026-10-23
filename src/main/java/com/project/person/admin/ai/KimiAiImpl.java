@@ -38,7 +38,7 @@ public class KimiAiImpl implements AiInterface {
     @Value("${moonshot.api-key:}")
     private String apiKey;
 
-    @Value("${moonshot.model:kimi-k3}")
+    @Value("${moonshot.model:kimi-k2.6}")
     private String model;
 
     @Autowired
@@ -151,7 +151,14 @@ public class KimiAiImpl implements AiInterface {
                     if (choices.size() == 0) {
                         continue;
                     }
-                    JsonNode delta = choices.get(0).path("delta").path("content");
+                    JsonNode deltaObj = choices.get(0).path("delta");
+                    // 思考阶段（reasoning_content）在正文前可能持续十几秒，原样透出给前端做实时进度，
+                    // 否则这段空白期用户以为卡死；解析只用正文 content
+                    JsonNode reasoning = deltaObj.path("reasoning_content");
+                    if (reasoning.isTextual() && onDelta != null) {
+                        onDelta.accept(reasoning.asText());
+                    }
+                    JsonNode delta = deltaObj.path("content");
                     if (delta.isTextual()) {
                         String d = delta.asText();
                         acc.append(d);
