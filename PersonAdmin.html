@@ -1041,7 +1041,9 @@ const CalorieRecognize = {
             {{ m.text }}
           </span>
         </div>
-        <div v-if="!chatLog.length" style="color:#c0c4cc;font-size:13px;text-align:center;padding:14px 0">识别不准？用一句话告诉 AI，如“那不是米饭，是面条”“我吃的是 300 克”</div>
+        <div v-if="!chatLog.length" style="text-align:center;padding:2px 0 4px">
+          <span style="display:inline-block;background:#ecf5ff;border:1px solid #b3d8ff;color:#409eff;padding:3px 12px;border-radius:12px;font-size:12px;line-height:1.5">识别不准？告诉 AI，如“那不是米饭，是面条”</span>
+        </div>
         <div v-if="thinkingSec !== null" style="text-align:left;margin:6px 0">
           <span style="display:inline-block;background:#f4f4f5;border:1px dashed #c8c9cc;color:#909399;padding:6px 12px;border-radius:10px;font-size:13px;max-width:95%;word-break:break-all">
             AI 已思考 {{ thinkingSec }} 秒…
