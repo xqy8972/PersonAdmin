@@ -900,12 +900,12 @@ const CalorieRecognize = {
               body: fd
             });
             if ((resp.headers.get('content-type') || '').includes('text/event-stream')) {
-              await readSse(resp, evt => acceptResult(evt));
+              await readSse(resp, evt => acceptResult(evt, items.value.length > 0));
             } else {
               // 流式不可用时回退普通接口
               const j = await resp.json();
               if (j.code !== 200) throw new Error(j.msg || '识别失败');
-              acceptResult(j.data);
+              acceptResult(j.data, items.value.length > 0);
             }
             break;
           } catch (err) {
@@ -922,9 +922,11 @@ const CalorieRecognize = {
       } catch (err) { ElMessage.error('识别请求失败：' + err.message); }
       finally { analyzing.value = false; stage.value = ''; stopThinkTimer(); }
     };
-    /* 每轮 AI 返回的都是修正后的全量列表：整体替换 + 把追问（配料表/营养成分表需补充份量）追加进对话区。
+    /* 每轮 AI 返回的都是本轮识别出的全量列表：默认整体替换；
+       追加模式（选完图识别完再选图）把新结果并入已有清单，不清空之前的；
+       把追问（配料表/营养成分表需补充份量）追加进对话区。
        与上一轮按「食物|重量|热量」对比，变动项标红；记录千卡/克比，改重量时热量联动 */
-    const acceptResult = data => {
+    const acceptResult = (data, append) => {
       if (!data) return;
       const prev = items.value;
       const hadPrev = prev.length > 0;
@@ -935,11 +937,11 @@ const CalorieRecognize = {
         const it = { _key: 'f' + (++keySeq), ...r };
         it._ratio = (Number(it.amount) > 0 && Number(it.calories) > 0)
           ? Number(it.calories) / Number(it.amount) : null;
-        it._changed = hadPrev && !prevSet.has(
+        it._changed = hadPrev && !append && !prevSet.has(
           (it.food || '') + '|' + (it.amount ?? '') + '|' + (it.calories ?? ''));
         return it;
       });
-      items.value = arr;
+      items.value = (append && hadPrev) ? prev.concat(arr) : arr;
       const q = arr.find(r => r && r.question);
       if (q) chatLog.value.push({ role: 'ai', text: q.question });
       const ok = arr.filter(r => !r.error).length;
