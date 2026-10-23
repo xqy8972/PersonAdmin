@@ -798,7 +798,15 @@ const CalorieRecognize = {
     const mealType = ref('午餐');
     const recordDate = ref(todayStr());
     const saving = ref(false);
+    const chatBox = ref(null); // 对话区容器，新消息自动滚到底部
     let keySeq = 0;
+    const scrollChatBottom = () => {
+      Vue.nextTick(() => {
+        const el = chatBox.value;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    };
+    watch(chatLog, () => scrollChatBottom());
     const open = () => {
       visible.value = true; convId.value = ''; items.value = []; chatLog.value = [];
       chatText.value = ''; mealType.value = '午餐'; recordDate.value = todayStr();
@@ -845,18 +853,34 @@ const CalorieRecognize = {
       try {
         const fd = new FormData();
         files.forEach(f => fd.append('files', f));
-        const resp = await fetch(API_BASE + '/diet/recognize/stream', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + store.get('token') },
-          body: fd
-        });
-        if ((resp.headers.get('content-type') || '').includes('text/event-stream')) {
-          await readSse(resp, evt => acceptResult(evt));
-        } else {
-          // 流式不可用时回退普通接口
-          const j = await resp.json();
-          if (j.code !== 200) { ElMessage.error(j.msg || '识别失败'); return; }
-          acceptResult(j.data);
+        let retried = false;
+        for (;;) {
+          try {
+            const resp = await fetch(API_BASE + '/diet/recognize/stream', {
+              method: 'POST',
+              headers: { Authorization: 'Bearer ' + store.get('token') },
+              body: fd
+            });
+            if ((resp.headers.get('content-type') || '').includes('text/event-stream')) {
+              await readSse(resp, evt => acceptResult(evt));
+            } else {
+              // 流式不可用时回退普通接口
+              const j = await resp.json();
+              if (j.code !== 200) throw new Error(j.msg || '识别失败');
+              acceptResult(j.data);
+            }
+            break;
+          } catch (err) {
+            // Moonshot 限流（HTTP 429：触发 RPM/并发上限）：等 20s 自动重试一次
+            if (!retried && String(err.message || '').includes('429')) {
+              retried = true;
+              ElMessage.warning('AI 接口请求太频繁（限流），20 秒后自动重试…');
+              thinking.value = '';
+              await new Promise(r => setTimeout(r, 20000));
+              continue;
+            }
+            throw err;
+          }
         }
       } catch (err) { ElMessage.error('识别请求失败：' + err.message); }
       finally { analyzing.value = false; stage.value = ''; thinking.value = ''; }
@@ -937,12 +961,12 @@ const CalorieRecognize = {
       finally { saving.value = false; }
     };
     return { visible, items, chatLog, analyzing, stage, chatting, chatText, mealType, recordDate,
-             saving, thinking, open, pickFiles, sendChat, validItems, totalCal, removeItem, confirmSave,
+             saving, thinking, chatBox, open, pickFiles, sendChat, validItems, totalCal, removeItem, confirmSave,
              onAmountChange, onCalChange };
   },
   template: `
     <el-button type="success" plain @click="open">AI识别热量</el-button>
-    <el-dialog v-model="visible" title="AI 识别热量" width="92%" style="max-width:560px" top="5vh">
+    <el-dialog v-model="visible" title="AI 识别热量" width="94%" style="max-width:720px" top="4vh">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <el-button type="primary" plain size="small" :loading="analyzing" @click="$refs.fileInput.click()">
           {{ analyzing ? (stage === 'ocr' ? '本地提取文字中…' : 'AI 识别中…') : '拍照/选图（可多选）' }}
@@ -969,20 +993,20 @@ const CalorieRecognize = {
         </div>
         <div style="text-align:right;color:#606266;font-size:13px">合计 <b style="color:#e6a23c">{{ totalCal }}</b> 千卡</div>
       </div>
-      <div style="border:1px solid #f0f0f0;border-radius:8px;background:#fafafa;padding:8px 10px;margin-bottom:10px;max-height:150px;overflow:auto">
+      <div ref="chatBox" style="border:1px solid #f0f0f0;border-radius:8px;background:#fafafa;padding:10px 12px;margin-bottom:10px;max-height:280px;min-height:120px;overflow:auto">
         <div v-for="(m, i) in chatLog" :key="i"
              :style="m.role === 'user'
-               ? 'text-align:right;margin:4px 0'
-               : 'text-align:left;margin:4px 0'">
+               ? 'text-align:right;margin:6px 0'
+               : 'text-align:left;margin:6px 0'">
           <span :style="m.role === 'user'
-            ? 'display:inline-block;background:#409eff;color:#fff;padding:4px 10px;border-radius:10px;font-size:12px;max-width:85%;text-align:left'
-            : 'display:inline-block;background:#fff;border:1px solid #e4e7ed;color:#606266;padding:4px 10px;border-radius:10px;font-size:12px;max-width:85%'">
+            ? 'display:inline-block;background:#409eff;color:#fff;padding:6px 12px;border-radius:10px;font-size:14px;max-width:85%;text-align:left;line-height:1.5'
+            : 'display:inline-block;background:#fff;border:1px solid #e4e7ed;color:#606266;padding:6px 12px;border-radius:10px;font-size:14px;max-width:85%;line-height:1.5'">
             {{ m.text }}
           </span>
         </div>
-        <div v-if="!chatLog.length" style="color:#c0c4cc;font-size:12px;text-align:center">识别不准？用一句话告诉 AI，如“那不是米饭，是面条”“我吃的是 300 克”</div>
-        <div v-if="thinking" style="text-align:left;margin:4px 0">
-          <span style="display:inline-block;background:#f4f4f5;border:1px dashed #c8c9cc;color:#909399;padding:4px 10px;border-radius:10px;font-size:12px;max-width:95%;word-break:break-all">
+        <div v-if="!chatLog.length" style="color:#c0c4cc;font-size:13px;text-align:center;padding:14px 0">识别不准？用一句话告诉 AI，如“那不是米饭，是面条”“我吃的是 300 克”</div>
+        <div v-if="thinking" style="text-align:left;margin:6px 0">
+          <span style="display:inline-block;background:#f4f4f5;border:1px dashed #c8c9cc;color:#909399;padding:6px 12px;border-radius:10px;font-size:13px;max-width:95%;word-break:break-all">
             AI 思考中… {{ thinking.length > 120 ? thinking.slice(-120) : thinking }}
           </span>
         </div>

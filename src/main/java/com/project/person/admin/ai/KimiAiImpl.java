@@ -131,7 +131,8 @@ public class KimiAiImpl implements AiInterface {
                     }
                 }
                 log.warn("Kimi 流式 HTTP 错误: status={}, body={}", conn.getResponseCode(), err);
-                throw BizException.badRequest("AI 识图失败：HTTP " + conn.getResponseCode());
+                throw BizException.badRequest("AI 识图失败：HTTP " + conn.getResponseCode()
+                        + extractErrDetail(err));
             }
             StringBuilder acc = new StringBuilder();
             try (java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(
@@ -173,6 +174,20 @@ public class KimiAiImpl implements AiInterface {
             if (conn != null) {
                 conn.disconnect();
             }
+        }
+    }
+
+    /** 从 Moonshot 错误响应体提取 error.message（如限流原因），没有则返回空串 */
+    private static String extractErrDetail(String errBody) {
+        if (errBody == null || errBody.isEmpty()) {
+            return "";
+        }
+        try {
+            JsonNode n = new ObjectMapper().readTree(errBody);
+            String m = n.path("error").path("message").asText(null);
+            return m == null || m.isEmpty() ? "" : "（" + m + "）";
+        } catch (Exception e) {
+            return "";
         }
     }
 
