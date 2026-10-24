@@ -57,6 +57,12 @@ public class OpenAiCompatAiImpl implements AiInterface {
         this.restTemplate = new RestTemplate(factory);
     }
 
+    /** 启动即打印当前生效的视觉模型配置，部署后看日志一眼确认跑的版本 */
+    @javax.annotation.PostConstruct
+    void logConfig() {
+        log.info("AI视觉提供方: openai-compat, base-url={}, model={}", baseUrl, model);
+    }
+
     @Override
     public String name() {
         return "openai-compat";

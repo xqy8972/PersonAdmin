@@ -229,12 +229,17 @@ public class CalorieRecognizeService {
         return new RecognizeResult(id, items);
     }
 
-    /** onDelta 为空走一次性调用；非空走流式（SSE 增量实时回调），返回完整文本 */
+    /** onDelta 为空走一次性调用；非空走流式（SSE 增量实时回调），返回完整文本。记录耗时便于排查慢请求。 */
     private String callAi(List<AiChatTurn> turns, java.util.function.Consumer<String> onDelta) {
-        if (onDelta == null) {
-            return aiFacade.chat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns);
+        long t0 = System.currentTimeMillis();
+        try {
+            if (onDelta == null) {
+                return aiFacade.chat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns);
+            }
+            return aiFacade.streamChat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns, onDelta);
+        } finally {
+            log.info("AI识别调用耗时 {}ms", System.currentTimeMillis() - t0);
         }
-        return aiFacade.streamChat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns, onDelta);
     }
 
     /** 读取并校验会话归属：key 带 userId，拿到别人的会话直接视为不存在，天然防越权 */
