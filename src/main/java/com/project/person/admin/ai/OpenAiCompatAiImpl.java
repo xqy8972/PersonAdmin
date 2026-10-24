@@ -43,6 +43,11 @@ public class OpenAiCompatAiImpl implements AiInterface {
     @Value("${ai.vision.model:}")
     private String model;
 
+    /** 是否启用思考模式：Qwen3 系列在 SiliconFlow 默认开思考（实测同样请求 54s vs 关思考 2.5s），
+        识图/修正场景不需要长推理，默认关闭（请求体带 enable_thinking=false） */
+    @Value("${ai.thinking-enabled:false}")
+    private boolean thinkingEnabled;
+
     @Autowired
     private PromptTemplateLoader promptLoader;
 
@@ -233,6 +238,9 @@ public class OpenAiCompatAiImpl implements AiInterface {
     private String buildBody(String modelOverride, AiAbility ability, List<AiChatTurn> turns, boolean stream) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", StringUtils.hasText(modelOverride) ? modelOverride : model);
+        if (!thinkingEnabled) {
+            body.put("enable_thinking", false);
+        }
         if (stream) {
             body.put("stream", true);
         }
@@ -270,6 +278,9 @@ public class OpenAiCompatAiImpl implements AiInterface {
         try {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("model", model);
+            if (!thinkingEnabled) {
+                body.put("enable_thinking", false);
+            }
 
             ArrayNode messages = body.putArray("messages");
             ObjectNode sys = messages.addObject();
