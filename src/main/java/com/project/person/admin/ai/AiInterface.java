@@ -34,6 +34,15 @@ public interface AiInterface {
         throw new UnsupportedOperationException(name() + " 不支持流式输出");
     }
 
+    /**
+     * 流式多轮对话（可临时覆盖模型）：modelOverride 非空时本调用使用该模型而非实现默认模型。
+     * 不支持覆盖的实现忽略该参数。用于同一通道下「识图用 VL 模型、文字修正用文本快模型」。
+     */
+    default String streamChat(String modelOverride, AiAbility ability, List<AiChatTurn> turns,
+                              java.util.function.Consumer<String> onDelta) {
+        return streamChat(ability, turns, onDelta);
+    }
+
     /** 实现标识（日志用），如 kimi */
     String name();
 }

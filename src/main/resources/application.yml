@@ -68,6 +68,11 @@ ai:
     # 竞速通道（默认关闭）：与主通道并行的另一提供方（openai-compat | kimi），先成功胜出。
     # 主通道本身稳定后无需开启；如需兜底再设置 AI_VISION_RACE_PROVIDER。
     race-provider: ${AI_VISION_RACE_PROVIDER:}
+  text:
+    # 纯文字修正轮（识别结果出来后对话修改）用的快模型：与上面同通道同 key，只换模型。
+    # Qwen3.5-35B-A3B 输入0.4/输出3.2元每百万token、速度秒级、中文指令跟随好；
+    # 修正轮不含新图片，后端会自动剥掉历史图片走这个模型，比 VL 模型快很多。留空则修正轮也用视觉模型。
+    model: ${AI_TEXT_MODEL:Qwen/Qwen3.5-35B-A3B}
 
 logging:
   level:

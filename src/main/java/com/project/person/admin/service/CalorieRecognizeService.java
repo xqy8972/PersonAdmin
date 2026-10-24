@@ -192,7 +192,7 @@ public class CalorieRecognizeService {
         state.turns.add(AiChatTurn.user(message.trim(), null));
         String resp;
         try {
-            resp = callAi(state.turns, onDelta);
+            resp = callTextChat(state.turns, onDelta);
         } catch (Exception e) {
             // 失败的轮次不进历史，避免污染上下文
             state.turns.remove(state.turns.size() - 1);
@@ -238,8 +238,15 @@ public class CalorieRecognizeService {
      * 两通道同时发请求，先成功返回者胜出——单平台高峰排队时由另一平台兜底，
      * 避免同平台重试等于重排同一队列。留空或与主通道相同则退化为单通道调用。
      */
-    @Value("${ai.vision.race-provider:kimi}")
+    @Value("${ai.vision.race-provider:}")
     private String raceProvider;
+
+    /**
+     * 纯文字修正轮用的快模型（与视觉模型同通道同 key，只换模型；如 Qwen/Qwen3.5-35B-A3B）。
+     * 修正轮不含新图片，把历史里的图片剥掉后走文本模型，速度远快于 VL 模型。留空则修正轮也用视觉模型。
+     */
+    @Value("${ai.text.model:}")
+    private String textModel;
 
     private final java.util.concurrent.ExecutorService aiExec =
             java.util.concurrent.Executors.newFixedThreadPool(4, r -> {
@@ -248,9 +255,30 @@ public class CalorieRecognizeService {
                 return t;
             });
 
-    /** 统一走流式调用；配置了 race-provider 时双通道并行竞速（先成功胜出）。记录总耗时便于排查。 */
-    private String callAi(List<AiChatTurn> turns, java.util.function.Consumer<String> onDelta) {
+    /**
+     * 纯文字修正轮调用：历史中的图片剥掉（修正靠文字上下文，不必每轮重传图），
+     * 配置 ai.text.model 时走文本快模型，速度远快于 VL 模型；未配置则回退视觉模型路径。
+     */
+    private String callTextChat(List<AiChatTurn> turns, java.util.function.Consumer<String> onDelta) {
+        if (textModel == null || textModel.trim().isEmpty()) {
+            return callAi(turns, onDelta);
+        }
+        List<AiChatTurn> textTurns = new ArrayList<>(turns.size());
+        for (AiChatTurn t : turns) {
+            textTurns.add(t.getImages() == null || t.getImages().isEmpty()
+                    ? t : new AiChatTurn(t.getRole(), t.getText(), null));
+        }
         long t0 = System.currentTimeMillis();
+        try {
+            return aiFacade.streamChatWithModel(textModel.trim(),
+                    AiAbility.ANALYZE_CALORIE_BY_PIC, textTurns, onDelta);
+        } finally {
+            log.info("AI修正(文本模型 {}) 调用耗时 {}ms", textModel, System.currentTimeMillis() - t0);
+        }
+    }
+
+    /** 统一走流式调用；配置了 race-provider 时双通道并行竞速（先成功胜出）。记录总耗时便于排查。 */
+    private String callAi(List<AiChatTurn> turns, java.util.function.Consumer<String> onDelta) {        long t0 = System.currentTimeMillis();
         try {
             return race(turns, onDelta);
         } finally {

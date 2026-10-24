@@ -88,4 +88,15 @@ public class AiFacade {
                 turns == null ? 0 : turns.size());
         return ai.streamChat(ability, turns, onDelta);
     }
+
+    /**
+     * 流式多轮对话并临时覆盖模型（如修正轮换文本快模型）。model 为空则走实现默认模型。
+     */
+    public String streamChatWithModel(String model, AiAbility ability, List<AiChatTurn> turns,
+                                      java.util.function.Consumer<String> onDelta) {
+        AiInterface ai = current();
+        log.debug("AI 流式对话 [{}] via {}, model={}, turns={}", ability.name(), ai.name(), model,
+                turns == null ? 0 : turns.size());
+        return ai.streamChat(model, ability, turns, onDelta);
+    }
 }

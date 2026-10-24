@@ -117,6 +117,13 @@ public class OpenAiCompatAiImpl implements AiInterface {
     @Override
     public String streamChat(AiAbility ability, List<AiChatTurn> turns,
                              java.util.function.Consumer<String> onDelta) {
+        return streamChat(null, ability, turns, onDelta);
+    }
+
+    /** modelOverride 非空时临时换模型（如修正轮用文本快模型），其他与 {@link #streamChat} 一致 */
+    @Override
+    public String streamChat(String modelOverride, AiAbility ability, List<AiChatTurn> turns,
+                             java.util.function.Consumer<String> onDelta) {
         if (turns == null || turns.isEmpty()) {
             throw BizException.badRequest("对话内容为空");
         }
@@ -131,7 +138,7 @@ public class OpenAiCompatAiImpl implements AiInterface {
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setRequestProperty("Authorization", "Bearer " + apiKey.trim());
             try (java.io.OutputStream os = conn.getOutputStream()) {
-                os.write(buildBody(ability, turns, true).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                os.write(buildBody(modelOverride, ability, turns, true).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
             if (conn.getResponseCode() >= 400) {
                 String err = "";
@@ -220,8 +227,12 @@ public class OpenAiCompatAiImpl implements AiInterface {
 
     /** 组装 OpenAI 兼容请求体：system prompt + 多轮 messages（含图片） */
     private String buildBody(AiAbility ability, List<AiChatTurn> turns, boolean stream) {
+        return buildBody(null, ability, turns, stream);
+    }
+
+    private String buildBody(String modelOverride, AiAbility ability, List<AiChatTurn> turns, boolean stream) {
         ObjectNode body = objectMapper.createObjectNode();
-        body.put("model", model);
+        body.put("model", StringUtils.hasText(modelOverride) ? modelOverride : model);
         if (stream) {
             body.put("stream", true);
         }
