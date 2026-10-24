@@ -257,9 +257,16 @@ document.addEventListener('dblclick', e => e.preventDefault(), { passive: false 
   /* 首尾占位行：让第一行/最后一行也能滚到高亮带中心 */
   .wr-pad { height: 36px; }
 
-  /* AI 识别弹窗：识别结果列表过长时弹窗主体可上下滑，保证底部输入框与确认按钮始终可达 */
-  .cal-dlg.el-dialog { max-height: 92vh; display: flex; flex-direction: column; }
-  .cal-dlg .el-dialog__body { overflow-y: auto; flex: 1; min-height: 0; }
+  /* AI 识别弹窗：识别结果列表过长时弹窗主体可上下滑，保证底部输入框与确认按钮始终可达。
+     class 可能落在 .el-dialog 或外层 .el-overlay-dialog 上，两种选择器都写兼容 */
+  .cal-dlg.el-dialog, .cal-dlg .el-dialog { max-height: 90vh; display: flex; flex-direction: column; }
+  .cal-dlg .el-dialog__header { flex: none; }
+  .cal-dlg .el-dialog__body { flex: 1 1 auto; min-height: 0; max-height: calc(90vh - 190px);
+    overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+  .cal-dlg .el-dialog__footer { flex: none; }
+  /* 遮罩层滚动不外溢到背后的页面（移动端页面滚动条在内层容器，EP 的 lock-scroll 锁不到） */
+  .el-overlay-dialog { overscroll-behavior: contain; }
+  .cal-chat { overscroll-behavior: contain; }
 
   /* ===== 移动端适配（≤768px）：底部 Tab 栏、栅格纵向堆叠、卡片质感覆盖 ===== */
   .m-tabbar { display: none; }
@@ -268,6 +275,8 @@ document.addEventListener('dblclick', e => e.preventDefault(), { passive: false 
     /* 隐藏页面右侧滚动条（保留滑动能力），接近原生 App 体验 */
     ::-webkit-scrollbar { display: none; width: 0; height: 0; }
     * { scrollbar-width: none; }
+    /* 识别弹窗聊天记录区收窄，优先滚动弹窗主体，避免双层滚动打架 */
+    .cal-chat { max-height: 200px; }
     /* 移动端顶栏去掉（财务/退出登录），信息收到底栏「个人」页 */
     .header { display: none; }
     .header { padding: 0 12px; font-size: 15px; }
@@ -1043,7 +1052,7 @@ const CalorieRecognize = {
         </div>
         <div style="text-align:right;color:#606266;font-size:13px">合计 <b style="color:#e6a23c">{{ totalCal }}</b> 千卡</div>
       </div>
-      <div ref="chatBox" style="border:1px solid #f0f0f0;border-radius:8px;background:#fafafa;padding:10px 12px;margin-bottom:10px;max-height:280px;min-height:120px;overflow:auto">
+      <div ref="chatBox" class="cal-chat" style="border:1px solid #f0f0f0;border-radius:8px;background:#fafafa;padding:10px 12px;margin-bottom:10px;max-height:280px;min-height:120px;overflow:auto">
         <div v-for="(m, i) in chatLog" :key="i"
              :style="m.role === 'user'
                ? 'text-align:right;margin:6px 0'
