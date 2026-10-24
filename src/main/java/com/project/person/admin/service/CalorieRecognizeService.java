@@ -13,6 +13,7 @@ import com.project.person.admin.model.RecognizedFood;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -232,55 +233,91 @@ public class CalorieRecognizeService {
         return new RecognizeResult(id, items);
     }
 
-    /** 单次调用超过 SLOW_MS 视为平台拥堵，放弃并重新发起一次（防高峰时段卡 20~40s） */
-    private static final long SLOW_MS = 10_000L;
+    /**
+     * 竞速通道：与主通道（ai.vision.provider）并行的另一提供方（openai-compat | kimi）。
+     * 两通道同时发请求，先成功返回者胜出——单平台高峰排队时由另一平台兜底，
+     * 避免同平台重试等于重排同一队列。留空或与主通道相同则退化为单通道调用。
+     */
+    @Value("${ai.vision.race-provider:kimi}")
+    private String raceProvider;
 
     private final java.util.concurrent.ExecutorService aiExec =
-            java.util.concurrent.Executors.newFixedThreadPool(3, r -> {
+            java.util.concurrent.Executors.newFixedThreadPool(4, r -> {
                 Thread t = new Thread(r, "ai-call");
                 t.setDaemon(true);
                 return t;
             });
 
-    /** 统一走流式调用（SSE 增量实时回调），返回完整文本；慢请求（>SLOW_MS）自动放弃并重试一次。记录耗时便于排查。 */
+    /** 统一走流式调用；配置了 race-provider 时双通道并行竞速（先成功胜出）。记录总耗时便于排查。 */
     private String callAi(List<AiChatTurn> turns, java.util.function.Consumer<String> onDelta) {
         long t0 = System.currentTimeMillis();
         try {
-            return callWithSlowRetry(turns, onDelta);
+            return race(turns, onDelta);
         } finally {
             log.info("AI识别调用耗时 {}ms, provider={}", System.currentTimeMillis() - t0,
                     aiFacade.currentProvider());
         }
     }
 
-    private String callWithSlowRetry(List<AiChatTurn> turns, java.util.function.Consumer<String> onDelta) {
-        for (int attempt = 1; attempt <= 2; attempt++) {
-            final java.util.concurrent.atomic.AtomicBoolean mine =
-                    new java.util.concurrent.atomic.AtomicBoolean(attempt == 1);
-            java.util.function.Consumer<String> sink = onDelta == null ? null
-                    : d -> { if (mine.get()) { onDelta.accept(d); } };
-            java.util.concurrent.CompletableFuture<String> f = java.util.concurrent.CompletableFuture.supplyAsync(
-                    () -> aiFacade.streamChat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns, sink), aiExec);
+    private String race(List<AiChatTurn> turns, java.util.function.Consumer<String> onDelta) {
+        String primary = aiFacade.currentProvider();
+        String rival = raceProvider == null ? "" : raceProvider.trim();
+        if (rival.isEmpty() || rival.equalsIgnoreCase(primary)) {
+            return aiFacade.streamChat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns, onDelta);
+        }
+        final String[] names = { primary, rival };
+        final StringBuilder[] bufs = { new StringBuilder(), new StringBuilder() };
+        @SuppressWarnings("unchecked")
+        final java.util.concurrent.CompletableFuture<String>[] fs =
+                new java.util.concurrent.CompletableFuture[2];
+        for (int i = 0; i < 2; i++) {
+            final int idx = i;
+            final long start = System.currentTimeMillis();
+            java.util.function.Consumer<String> sink = d -> {
+                synchronized (bufs[idx]) { bufs[idx].append(d); }
+            };
+            fs[i] = java.util.concurrent.CompletableFuture.supplyAsync(
+                    () -> aiFacade.streamChatByProvider(names[idx],
+                            AiAbility.ANALYZE_CALORIE_BY_PIC, turns, sink), aiExec)
+                    .whenComplete((r, e) -> log.info("AI识别通道[{}] 耗时{}ms 结果={}", names[idx],
+                            System.currentTimeMillis() - start,
+                            e == null ? "胜出/完成" : "失败:" + e.getMessage()));
+        }
+        // 等任意一路完成；一路失败则继续等另一路，两路都失败抛最后一个错
+        java.util.concurrent.LinkedBlockingQueue<java.util.concurrent.CompletableFuture<String>> done =
+                new java.util.concurrent.LinkedBlockingQueue<>();
+        for (java.util.concurrent.CompletableFuture<String> f : fs) {
+            f.whenComplete((r, e) -> done.offer(f));
+        }
+        RuntimeException lastErr = null;
+        for (int seen = 0; seen < 2; seen++) {
+            java.util.concurrent.CompletableFuture<String> f;
             try {
-                // 首次：最多等 SLOW_MS；第二次：平台仍拥堵就耐心等它完成
-                return attempt == 1
-                        ? f.get(SLOW_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-                        : f.get();
-            } catch (java.util.concurrent.TimeoutException e) {
-                mine.set(false); // 放弃本轮，其后续增量不再透给前端
-                log.warn("AI识别调用超过 {}ms（平台拥堵），发起第 2 次调用", SLOW_MS);
-            } catch (java.util.concurrent.ExecutionException e) {
-                Throwable c = e.getCause() == null ? e : e.getCause();
-                if (c instanceof RuntimeException) {
-                    throw (RuntimeException) c;
-                }
-                throw new RuntimeException(c);
-            } catch (InterruptedException e) {
+                f = done.take();
+            } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
-                throw new RuntimeException(e);
+                throw new RuntimeException(ie);
+            }
+            try {
+                String r = f.get();
+                int idx = (f == fs[0]) ? 0 : 1;
+                // 竞速期间不透增量（避免两路串流），胜出方完成后把缓冲增量一次性补发
+                if (onDelta != null) {
+                    String buffered;
+                    synchronized (bufs[idx]) { buffered = bufs[idx].toString(); }
+                    if (!buffered.isEmpty()) { onDelta.accept(buffered); }
+                }
+                return r;
+            } catch (java.util.concurrent.ExecutionException ee) {
+                Throwable c = ee.getCause() == null ? ee : ee.getCause();
+                log.warn("AI识别通道调用失败，等待另一通道: {}", c.getMessage());
+                lastErr = c instanceof RuntimeException ? (RuntimeException) c : new RuntimeException(c);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(ie);
             }
         }
-        throw new IllegalStateException("unreachable");
+        throw lastErr == null ? new IllegalStateException("unreachable") : lastErr;
     }
 
     /** 读取并校验会话归属：key 带 userId，拿到别人的会话直接视为不存在，天然防越权 */

@@ -62,6 +62,10 @@ ai:
     base-url: ${AI_VISION_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
     api-key: ${AI_VISION_API_KEY:sk-ws-H.YMXDPXX.G2QO.MEQCIDdGo8vcljJ2Kr7PERl0v4DiYMBr5jWIeqg2DcovWKL4AiBmxMhuYoVy9sSiB5UoR0RET02tZZu6Jot84oF6UDF1NQ}
     model: ${AI_VISION_MODEL:qwen3-vl-plus}
+    # 竞速通道（可选）：与主通道并行的另一提供方，两通道同时发请求、先成功胜出。
+    # 防单平台高峰排队（同平台重试等于重排同一队列，实测白等 10s 又排 40s）；
+    # 正常时段主通道先返回，竞速通道那次调用作废（费用按各平台规则计）。留空则关闭竞速。
+    race-provider: ${AI_VISION_RACE_PROVIDER:kimi}
 
 logging:
   level:

@@ -32,7 +32,12 @@ public class AiFacade {
     private String provider;
 
     private AiInterface current() {
-        return "openai-compat".equalsIgnoreCase(provider) ? openAiCompat : kimi;
+        return resolve(provider);
+    }
+
+    /** 按名字解析提供方：openai-compat | kimi（非法值回退 kimi） */
+    private AiInterface resolve(String name) {
+        return "openai-compat".equalsIgnoreCase(name) ? openAiCompat : kimi;
     }
 
     /** 当前生效的提供方标识（排查问题时日志用） */
@@ -68,6 +73,17 @@ public class AiFacade {
     public String streamChat(AiAbility ability, List<AiChatTurn> turns,
                              java.util.function.Consumer<String> onDelta) {
         AiInterface ai = current();
+        log.debug("AI 流式对话 [{}] via {}, turns={}", ability.name(), ai.name(),
+                turns == null ? 0 : turns.size());
+        return ai.streamChat(ability, turns, onDelta);
+    }
+
+    /**
+     * 按指定提供方做流式调用（双通道竞速用）：name 为 openai-compat | kimi。
+     */
+    public String streamChatByProvider(String name, AiAbility ability, List<AiChatTurn> turns,
+                                       java.util.function.Consumer<String> onDelta) {
+        AiInterface ai = resolve(name);
         log.debug("AI 流式对话 [{}] via {}, turns={}", ability.name(), ai.name(),
                 turns == null ? 0 : turns.size());
         return ai.streamChat(ability, turns, onDelta);
