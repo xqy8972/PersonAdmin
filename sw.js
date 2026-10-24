@@ -2,7 +2,7 @@
  * 策略：页面/CDN 静态资源缓存优先（后台刷新），后端 API 一律网络直达不缓存。
  * 注意：SW 仅在 HTTPS（或 localhost）下生效，HTTP 部署时浏览器会自动忽略注册。
  */
-const CACHE = 'personadmin-v1';
+const CACHE = 'personadmin-v2';
 
 self.addEventListener('install', e => {
   e.waitUntil(

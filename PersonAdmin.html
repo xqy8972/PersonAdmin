@@ -926,11 +926,19 @@ const CalorieRecognize = {
             }
             break;
           } catch (err) {
+            const msg = String(err.message || '');
             // Moonshot 限流（HTTP 429：触发 RPM/并发上限）：等 20s 自动重试一次
-            if (!retried && String(err.message || '').includes('429')) {
+            if (!retried && msg.includes('429')) {
               retried = true;
               ElMessage.warning('AI 接口请求太频繁（限流），20 秒后自动重试…');
               await new Promise(r => setTimeout(r, 20000));
+              continue;
+            }
+            // 网络波动/上传中断（PWA、手机网络切换常见）：1.5s 后自动重试一次
+            if (!retried && /failed to fetch|networkerror|load failed|timeout|aborted|断开/i.test(msg)) {
+              retried = true;
+              ElMessage.warning('网络波动，正在自动重试…');
+              await new Promise(r => setTimeout(r, 1500));
               continue;
             }
             throw err;
@@ -981,17 +989,31 @@ const CalorieRecognize = {
       chatting.value = true;
       startThinkTimer();
       try {
-        const resp = await fetch(API_BASE + '/diet/recognize/chat/stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('token') },
-          body: JSON.stringify({ convId: convId.value || null, message: msg })
-        });
-        if ((resp.headers.get('content-type') || '').includes('text/event-stream')) {
-          await readSse(resp, evt => acceptResult(evt));
-        } else {
-          const j = await resp.json();
-          if (j.code !== 200) { ElMessage.error(j.msg || '修改失败'); return; }
-          acceptResult(j.data);
+        let retried = false;
+        for (;;) {
+          try {
+            const resp = await fetch(API_BASE + '/diet/recognize/chat/stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.get('token') },
+              body: JSON.stringify({ convId: convId.value || null, message: msg })
+            });
+            if ((resp.headers.get('content-type') || '').includes('text/event-stream')) {
+              await readSse(resp, evt => acceptResult(evt));
+            } else {
+              const j = await resp.json();
+              if (j.code !== 200) { ElMessage.error(j.msg || '修改失败'); return; }
+              acceptResult(j.data);
+            }
+            break;
+          } catch (err) {
+            // 网络波动自动重试一次（PWA/手机网络切换常见）
+            if (!retried && /failed to fetch|networkerror|load failed|timeout|aborted|断开/i.test(String(err.message || ''))) {
+              retried = true;
+              await new Promise(r => setTimeout(r, 1500));
+              continue;
+            }
+            throw err;
+          }
         }
       } catch (e) { ElMessage.error('请求失败：' + e.message); }
       finally { chatting.value = false; stopThinkTimer(); }
