@@ -35,6 +35,12 @@ public class AiFacade {
         return "openai-compat".equalsIgnoreCase(provider) ? openAiCompat : kimi;
     }
 
+    /** 当前生效的提供方标识（排查问题时日志用） */
+    public String currentProvider() {
+        AiInterface ai = current();
+        return ai.name();
+    }
+
     /**
      * 调用指定 AI 能力。prompt 模板由能力枚举对应的 md 文件提供（classpath 相对路径）。
      */

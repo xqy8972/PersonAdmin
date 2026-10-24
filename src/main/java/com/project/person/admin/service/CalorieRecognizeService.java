@@ -120,12 +120,15 @@ public class CalorieRecognizeService {
             throw BizException.badRequest("一次最多识别 9 张图片");
         }
         List<String> images = new ArrayList<>();
+        long totalBytes = 0;
         for (byte[] raw : raws) {
             /* 先压缩再 base64：手机原图单张 5~12MB，并发转 base64 峰值可达 400MB+，
-               512M 堆直接 OOM。统一压到长边 1280 的 JPEG（通常 <300KB）。 */
+               512M 堆直接 OOM。统一压到长边 1600 的 JPEG（通常 <500KB）。 */
             byte[] compact = ImageCompactor.compact(raw);
+            totalBytes += compact.length;
             images.add("data:image/jpeg;base64," + Base64.getEncoder().encodeToString(compact));
         }
+        log.info("识图请求: {} 张图, 压缩后共 {}KB", raws.size(), totalBytes / 1024);
         String prompt = images.size() > 1
                 ? "以下是 " + images.size() + " 张食物/营养成分相关图片（可能是同一餐的不同食物，也可能是配料表/营养成分表），请逐一识别："
                 : "请识别这张图片中的食物或营养成分信息：";
@@ -238,7 +241,8 @@ public class CalorieRecognizeService {
             }
             return aiFacade.streamChat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns, onDelta);
         } finally {
-            log.info("AI识别调用耗时 {}ms", System.currentTimeMillis() - t0);
+            log.info("AI识别调用耗时 {}ms, provider={}", System.currentTimeMillis() - t0,
+                    aiFacade.currentProvider());
         }
     }
 
