@@ -220,7 +220,9 @@ public class CalorieRecognizeService {
         state.turns.add(AiChatTurn.user(prompt, images));
         String resp;
         try {
-            resp = callAi(state.turns, onDelta);
+            // 无图首轮（纯文字描述/追加识别后的汇总）走文本快模型，有图才走视觉模型
+            resp = (images == null || images.isEmpty()) ? callTextChat(state.turns, onDelta)
+                    : callAi(state.turns, onDelta);
         } catch (Exception e) {
             state.turns.remove(state.turns.size() - 1);
             throw e;
