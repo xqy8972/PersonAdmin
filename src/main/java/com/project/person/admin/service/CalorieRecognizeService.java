@@ -232,18 +232,55 @@ public class CalorieRecognizeService {
         return new RecognizeResult(id, items);
     }
 
-    /** onDelta 为空走一次性调用；非空走流式（SSE 增量实时回调），返回完整文本。记录耗时便于排查慢请求。 */
+    /** 单次调用超过 SLOW_MS 视为平台拥堵，放弃并重新发起一次（防高峰时段卡 20~40s） */
+    private static final long SLOW_MS = 10_000L;
+
+    private final java.util.concurrent.ExecutorService aiExec =
+            java.util.concurrent.Executors.newFixedThreadPool(3, r -> {
+                Thread t = new Thread(r, "ai-call");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /** 统一走流式调用（SSE 增量实时回调），返回完整文本；慢请求（>SLOW_MS）自动放弃并重试一次。记录耗时便于排查。 */
     private String callAi(List<AiChatTurn> turns, java.util.function.Consumer<String> onDelta) {
         long t0 = System.currentTimeMillis();
         try {
-            if (onDelta == null) {
-                return aiFacade.chat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns);
-            }
-            return aiFacade.streamChat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns, onDelta);
+            return callWithSlowRetry(turns, onDelta);
         } finally {
             log.info("AI识别调用耗时 {}ms, provider={}", System.currentTimeMillis() - t0,
                     aiFacade.currentProvider());
         }
+    }
+
+    private String callWithSlowRetry(List<AiChatTurn> turns, java.util.function.Consumer<String> onDelta) {
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            final java.util.concurrent.atomic.AtomicBoolean mine =
+                    new java.util.concurrent.atomic.AtomicBoolean(attempt == 1);
+            java.util.function.Consumer<String> sink = onDelta == null ? null
+                    : d -> { if (mine.get()) { onDelta.accept(d); } };
+            java.util.concurrent.CompletableFuture<String> f = java.util.concurrent.CompletableFuture.supplyAsync(
+                    () -> aiFacade.streamChat(AiAbility.ANALYZE_CALORIE_BY_PIC, turns, sink), aiExec);
+            try {
+                // 首次：最多等 SLOW_MS；第二次：平台仍拥堵就耐心等它完成
+                return attempt == 1
+                        ? f.get(SLOW_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        : f.get();
+            } catch (java.util.concurrent.TimeoutException e) {
+                mine.set(false); // 放弃本轮，其后续增量不再透给前端
+                log.warn("AI识别调用超过 {}ms（平台拥堵），发起第 2 次调用", SLOW_MS);
+            } catch (java.util.concurrent.ExecutionException e) {
+                Throwable c = e.getCause() == null ? e : e.getCause();
+                if (c instanceof RuntimeException) {
+                    throw (RuntimeException) c;
+                }
+                throw new RuntimeException(c);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
+        }
+        throw new IllegalStateException("unreachable");
     }
 
     /** 读取并校验会话归属：key 带 userId，拿到别人的会话直接视为不存在，天然防越权 */
