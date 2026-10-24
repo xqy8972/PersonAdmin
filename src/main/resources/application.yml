@@ -13,9 +13,10 @@ spring:
     # 注意 spring.sql.init 必须保持 never（H2 方言的 schema.sql 不能在 MySQL 执行），
     # 空库时也不会再灌 mock 数据（data.sql 由 SqlInitRunner 按 sys_user 是否为空把关）
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/person_admin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: MYSQL-xqy-8972
+    url: ${DB_URL:jdbc:mysql://localhost:3306/person_admin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    # 密码禁止写入仓库（本仓库是公开仓库，历史提交里的密钥均已泄露，必须换秘钥并改用环境变量传入）
+    password: ${DB_PASSWORD:}
 
   # 如需切回 H2 文件库，注释上面的 MySQL 配置，启用下面的配置：
 #  datasource:
@@ -47,7 +48,8 @@ mybatis:
 # 注意：配置名不能用 kimi 前缀——Spring 宽松绑定会把属性 kimi.api-key 映射到环境变量
 # KIMI_API_KEY（本机 kimi 桌面端注入的是 agent 网关 key，直接调 api.moonshot.cn 会 401）
 moonshot:
-  api-key: ${MOONSHOT_API_KEY:sk-mtZQmvBkYINqTVQzrk880RYNmsYcVfMLP5wCrSpxYsZZstVl}
+  # Key 禁止写入仓库：用环境变量 MOONSHOT_API_KEY 传入（仓库历史里的旧 key 已泄露，请去平台作废重建）
+  api-key: ${MOONSHOT_API_KEY:}
   # 视觉识别模型：实测同一张食物图 kimi-k3 首token 51s/总56s、k3.1-pro-highspeed 27s/29s、
   # kimi-k2.6 14.8s/总17s 且识别质量好，默认用 k2.6（可用 MOONSHOT_MODEL 环境变量覆盖）
   model: ${MOONSHOT_MODEL:kimi-k2.6}
@@ -60,7 +62,8 @@ ai:
     # 换厂商只需改这三个环境变量（兼容任意 OpenAI /v1/chat/completions 接口）。
     provider: ${AI_VISION_PROVIDER:openai-compat}
     base-url: ${AI_VISION_BASE_URL:https://api.siliconflow.cn/v1}
-    api-key: ${AI_VISION_API_KEY:sk-axvlpifijnufapgoiaefbhenykjnhtavagowuzupnnczwmed}
+    # Key 禁止写入仓库：用环境变量 AI_VISION_API_KEY 传入（仓库历史里的旧 key 已泄露，请去平台作废重建）
+    api-key: ${AI_VISION_API_KEY:}
     model: ${AI_VISION_MODEL:Qwen/Qwen3-VL-30B-A3B-Instruct}
     # 竞速通道（默认关闭）：与主通道并行的另一提供方（openai-compat | kimi），先成功胜出。
     # 主通道本身稳定后无需开启；如需兜底再设置 AI_VISION_RACE_PROVIDER。

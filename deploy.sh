@@ -61,6 +61,18 @@ fi
 
 # ---------- 4. 启动 ----------
 echo "[6/8] 启动服务（512M 堆，G1，OOM 生成 dump）..."
+# 密钥统一从服务器本地 secrets.env 读取（该文件不进 git，权限 600）：
+#   DB_PASSWORD=xxx  MOONSHOT_API_KEY=sk-xxx  AI_VISION_API_KEY=sk-xxx
+SECRETS_FILE=$APP_DIR/secrets.env
+if [ -f "$SECRETS_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$SECRETS_FILE"
+  set +a
+  echo "已加载 $SECRETS_FILE"
+else
+  echo "警告：未找到 $SECRETS_FILE，数据库/AI 密钥将以环境变量或空值生效，识图功能可能不可用"
+fi
 export LOG_PATH=$LOG_DIR
 nohup java -Xms512m -Xmx512m \
   -XX:+UseG1GC \
