@@ -237,8 +237,11 @@ public class OpenAiCompatAiImpl implements AiInterface {
 
     private String buildBody(String modelOverride, AiAbility ability, List<AiChatTurn> turns, boolean stream) {
         ObjectNode body = objectMapper.createObjectNode();
-        body.put("model", StringUtils.hasText(modelOverride) ? modelOverride : model);
-        if (!thinkingEnabled) {
+        String effModel = StringUtils.hasText(modelOverride) ? modelOverride : model;
+        body.put("model", effModel);
+        /* 关思考只对「覆盖模型」生效：Qwen3 文本模型默认开思考（54s vs 2.5s），而视觉模型
+           （如 Qwen3-VL-30B-A3B-Instruct）不支持 enable_thinking 参数，传了会报 20015 错误 */
+        if (!thinkingEnabled && StringUtils.hasText(modelOverride) && !modelOverride.equals(model)) {
             body.put("enable_thinking", false);
         }
         if (stream) {
@@ -278,9 +281,6 @@ public class OpenAiCompatAiImpl implements AiInterface {
         try {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("model", model);
-            if (!thinkingEnabled) {
-                body.put("enable_thinking", false);
-            }
 
             ArrayNode messages = body.putArray("messages");
             ObjectNode sys = messages.addObject();
