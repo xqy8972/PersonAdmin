@@ -54,14 +54,14 @@ moonshot:
 
 ai:
   vision:
-    # AI 提供方：openai-compat（默认，SiliconFlow 快速视觉模型）| kimi（Moonshot）
-    # 实测同一张食物图：SiliconFlow Qwen3-VL-30B-A3B 总 5.6s/首token 1.9s 且识别质量好；
-    # Moonshot kimi-k2.6 12~27s 波动（平台排队）。8B 模型免费档拥挤(22s)不建议。
+    # AI 提供方：openai-compat（默认，阿里百炼 qwen3-vl-plus）| kimi（Moonshot）
+    # 实测同一张食物图：百炼 qwen3-vl-plus 总 2.9s/首token 0.9s 识别质量好；
+    # SiliconFlow Qwen3-VL-30B-A3B 5.6s 中等；Moonshot kimi-k2.6 12~27s 波动（平台排队）。
     # 换厂商只需改这三个环境变量（兼容任意 OpenAI /v1/chat/completions 接口）。
     provider: ${AI_VISION_PROVIDER:openai-compat}
-    base-url: ${AI_VISION_BASE_URL:https://api.siliconflow.cn/v1}
-    api-key: ${AI_VISION_API_KEY:sk-axvlpifijnufapgoiaefbhenykjnhtavagowuzupnnczwmed}
-    model: ${AI_VISION_MODEL:Qwen/Qwen3-VL-30B-A3B-Instruct}
+    base-url: ${AI_VISION_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    api-key: ${AI_VISION_API_KEY:sk-ws-H.YMXDPXX.G2QO.MEQCIDdGo8vcljJ2Kr7PERl0v4DiYMBr5jWIeqg2DcovWKL4AiBmxMhuYoVy9sSiB5UoR0RET02tZZu6Jot84oF6UDF1NQ}
+    model: ${AI_VISION_MODEL:qwen3-vl-plus}
 
 logging:
   level:
