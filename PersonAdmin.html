@@ -3886,14 +3886,17 @@ const MobileFinancePage = {
     /* 记一笔收入/支出：直接弹窗填写，不跳详情页 */
     const incomeVisible = ref(false);
     const expenseVisible = ref(false);
-    const openIncome = () => { incomeVisible.value = true; };
-    const openExpense = () => { expenseVisible.value = true; };
+    const editRow = ref(null);
+    const openIncome = () => { editRow.value = null; incomeVisible.value = true; };
+    const openExpense = () => { editRow.value = null; expenseVisible.value = true; };
+    // 点击最近记录行直接编辑（行数据来自 /stats/dashboard recent，含 id/资产/备注）
+    const openEdit = r => { editRow.value = r; if (r.kind === '收入') incomeVisible.value = true; else expenseVisible.value = true; };
     const onSaved = () => window.dispatchEvent(new Event('pm-data-changed'));
     const reload = () => load(true); // 下拉刷新：绕过缓存重新拉
     return { monthIncome, monthExpense, assetTotal, investTotal, investProfit, loading,
              recent, invests, dateStr, go, shareLine, profitVal, profitCls, fmt,
              hideMoney, toggleHideMoney, mny, load, reload,
-             incomeVisible, expenseVisible, openIncome, openExpense, onSaved,
+             incomeVisible, expenseVisible, openIncome, openExpense, onSaved, editRow, openEdit,
              channelName: c => ({ THS: '同花顺' }[c] || c) };
   },
   template: `<PullRefresh :on-refresh="reload"><div class="m-wrap" v-loading="loading">
@@ -3924,11 +3927,12 @@ const MobileFinancePage = {
         <div class="m-quick-btn m-quick-in" @click="openIncome">记一笔收入</div>
         <div class="m-quick-btn m-quick-out" @click="openExpense">记一笔支出</div>
       </div>
-      <div class="m-line" v-for="(r, i) in recent" :key="i">
+      <div class="m-line" v-for="(r, i) in recent" :key="i" @click="openEdit(r)" style="cursor:pointer">
         <span class="m-line-sub" style="width:82px;flex-shrink:0">{{ r.recordDate }}</span>
         <el-tag size="small" :type="r.kind === '收入' ? 'danger' : 'success'" effect="plain">{{ r.kind }}</el-tag>
         <span class="m-line-main m-line-name">{{ r.category }}</span>
         <b :class="r.kind === '收入' ? 'green' : 'red'" style="font-variant-numeric:tabular-nums">{{ (r.kind === '收入' ? '+' : '-') + fmt(r.amount) }}</b>
+        <el-icon :size="14" color="#c8c9cc" style="flex-shrink:0"><ArrowRight /></el-icon>
       </div>
       <div v-if="!recent.length" class="m-empty">本月暂无记录</div>
     </div>
@@ -3962,8 +3966,8 @@ const MobileFinancePage = {
       <span class="m-sec-more">美元 · 日元 · 港元 · 欧元 · 英镑<el-icon :size="12"><ArrowRight /></el-icon></span>
     </div>
 
-    <MobileMoneyDialog type="income" v-model:visible="incomeVisible" @saved="onSaved" />
-    <MobileMoneyDialog type="expense" v-model:visible="expenseVisible" @saved="onSaved" />
+    <MobileMoneyDialog type="income" v-model:visible="incomeVisible" :edit-row="editRow && editRow.kind === '收入' ? editRow : null" @saved="onSaved" />
+    <MobileMoneyDialog type="expense" v-model:visible="expenseVisible" :edit-row="editRow && editRow.kind === '支出' ? editRow : null" @saved="onSaved" />
   </div></PullRefresh>`
 };
 

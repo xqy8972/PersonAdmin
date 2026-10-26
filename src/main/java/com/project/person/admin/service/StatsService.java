@@ -54,10 +54,14 @@ public class StatsService {
             Map<String, Object> r = lowerKeys(row);
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("kind", r.get("kind"));
+            item.put("id", r.get("id"));
             item.put("amount", r.get("amount"));
             item.put("category", r.get("category"));
             Object recordDate = r.get("record_date");
             item.put("recordDate", recordDate instanceof Date ? ((Date) recordDate).toLocalDate() : recordDate);
+            item.put("assetId", r.get("asset_id"));
+            item.put("investmentId", r.get("investment_id"));
+            item.put("remark", r.get("remark"));
             recent.add(item);
         }
         data.put("recent", recent);
