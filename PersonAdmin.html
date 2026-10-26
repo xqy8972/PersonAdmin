@@ -3709,7 +3709,9 @@ const LoginPage = {
 
 /* ---------------- 移动端通用：记一笔收入/支出弹窗（财务首页与收支详情页共用） ---------------- */
 const MobileMoneyDialog = {
-  props: { type: { type: String, default: 'income' }, visible: Boolean },
+  props: { type: { type: String, default: 'income' }, visible: Boolean,
+    /* 传入行数据则进入编辑模式：保存走 PUT，支持改金额/分类/日期/出资资产/备注 */
+    editRow: { type: Object, default: null } },
   emits: ['update:visible', 'saved'],
   setup(props, { emit }) {
     const form = ref({ amount: null, category: '', recordDate: todayStr(), assetId: null, remark: '' });
@@ -3720,25 +3722,46 @@ const MobileMoneyDialog = {
       cashAssets.value = arr.filter(a => a.category === '现金' || a.category === '银行卡');
     };
     watch(() => props.visible, v => {
-      if (v) { form.value = { amount: null, category: props.type === 'income' ? '工资' : '餐饮', recordDate: todayStr(), assetId: null, remark: '' }; loadCashAssets(); }
+      if (!v) return;
+      if (props.editRow) {
+        const r = props.editRow;
+        form.value = { id: r.id, amount: Number(r.amount), category: r.category, recordDate: r.recordDate,
+                       assetId: r.assetId, remark: r.remark || '', investmentId: r.investmentId || null };
+      } else {
+        form.value = { amount: null, category: props.type === 'income' ? '工资' : '餐饮', recordDate: todayStr(), assetId: null, remark: '', investmentId: null };
+      }
+      loadCashAssets();
     });
-    const cats = computed(() => props.type === 'income' ? incomeCategories : expenseCategories.filter(c => c !== '投资'));
+    const cats = computed(() => {
+      const base = props.type === 'income' ? incomeCategories : expenseCategories.filter(c => c !== '投资');
+      // 编辑「投资」类支出行时把该类目临时补进选项，避免下拉框显示空白
+      return (props.editRow && props.editRow.category && !base.includes(props.editRow.category))
+        ? base.concat(props.editRow.category) : base;
+    });
     const innerVisible = computed({ get: () => props.visible, set: v => emit('update:visible', v) });
+    const isEdit = computed(() => !!props.editRow);
     const save = async () => {
       const f = form.value;
       if (!(Number(f.amount) > 0)) { ElMessage.warning('请填写正确的金额'); return; }
       if (!f.assetId) { ElMessage.warning('请选择资产'); return; }
+      const payload = { amount: Number(f.amount), category: f.category, recordDate: f.recordDate,
+                        assetId: f.assetId, remark: f.remark || '', investmentId: f.investmentId || null };
       try {
-        await apiPost('/' + props.type, { amount: Number(f.amount), category: f.category, recordDate: f.recordDate, assetId: f.assetId, remark: f.remark || '' });
-        ElMessage.success(props.type === 'income' ? '已记收入' : '已记支出');
+        if (f.id) {
+          await apiPut('/' + props.type + '/' + f.id, payload);
+          ElMessage.success('已保存修改');
+        } else {
+          await apiPost('/' + props.type, payload);
+          ElMessage.success(props.type === 'income' ? '已记收入' : '已记支出');
+        }
         emit('update:visible', false);
         emit('saved');
       } catch (e) { /* 错误信息已由拦截层提示 */ }
     };
-    return { form, cashAssets, cats, innerVisible, save, fmt };
+    return { form, cashAssets, cats, innerVisible, isEdit, save, fmt };
   },
-  template: `<el-dialog v-model="innerVisible" :title="type === 'income' ? '记一笔收入' : '记一笔支出'" width="92%" style="max-width:420px">
-    <div v-if="type === 'expense'" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+  template: `<el-dialog v-model="innerVisible" :title="(type === 'income' ? (isEdit ? '编辑收入' : '记一笔收入') : (isEdit ? '编辑支出' : '记一笔支出'))" width="92%" style="max-width:420px">
+    <div v-if="type === 'expense' && !isEdit" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
       <ExpenseRecognize />
       <span style="font-size:11px;color:#909399;line-height:16px">最多上传9张图，可以是单笔交易截图，也可以是支出列表</span>
     </div>
@@ -4260,6 +4283,9 @@ const MobileMonthPage = {
     const monthWheelVisible = ref(false);
     const incomeVisible = ref(false);
     const expenseVisible = ref(false);
+    const editRow = ref(null); // 点击列表行进入编辑模式
+    const openEdit = r => { editRow.value = r; if (tab.value === 'income') incomeVisible.value = true; else expenseVisible.value = true; };
+    const openAdd = t => { editRow.value = null; if (t === 'income') incomeVisible.value = true; else expenseVisible.value = true; };
     /* 收支数据仅用户操作才更新：按 列表类型+月份 缓存，切换月份/收入支出来回看不再重复请求；
        用户操作（pm-data-changed 清缓存）或下拉刷新（force）才重新拉 */
     const load = (force) => {
@@ -4278,8 +4304,8 @@ const MobileMonthPage = {
     const onSaved = () => window.dispatchEvent(new Event('pm-data-changed'));
     const reload = () => load(true); // 下拉刷新：绕过缓存重新拉
     const monthText = computed(() => { const p = month.value.split('-'); return Number(p[0]) + '年' + Number(p[1]) + '月'; });
-    return { tab, month, list, loading, total, monthText,
-             monthWheelVisible, incomeVisible, expenseVisible, onMonth, onSaved, reload, fmt };
+    return { tab, month, list, loading, total, monthText, editRow,
+             monthWheelVisible, incomeVisible, expenseVisible, onMonth, onSaved, reload, fmt, openEdit, openAdd };
   },
   template: `<PullRefresh :on-refresh="reload"><div class="m-wrap" v-loading="loading">
     <MobileIeChart />
@@ -4292,24 +4318,25 @@ const MobileMonthPage = {
         </div>
         <span class="m-sec-more" @click="monthWheelVisible = true">{{ monthText }}<el-icon :size="12"><ArrowDown /></el-icon></span>
       </div>
-      <div class="m-line" v-for="r in list" :key="r.id">
+      <div class="m-line" v-for="r in list" :key="r.id" @click="openEdit(r)" style="cursor:pointer">
         <div class="m-line-main">
           <div class="m-line-name">{{ r.category }}</div>
           <div class="m-line-sub">{{ r.recordDate }}<template v-if="r.assetName"> · {{ r.assetName }}</template><template v-if="r.remark"> · {{ r.remark }}</template></div>
         </div>
         <b :class="tab === 'income' ? 'green' : 'red'" style="font-variant-numeric:tabular-nums">{{ (tab === 'income' ? '+' : '-') + fmt(r.amount) }}</b>
+        <el-icon :size="14" color="#c8c9cc" style="flex-shrink:0"><ArrowRight /></el-icon>
       </div>
       <div v-if="!loading && !list.length" class="m-empty">该月暂无{{ tab === 'income' ? '收入' : '支出' }}记录</div>
       <div class="m-month-total">合计：<b :class="tab === 'income' ? 'green' : 'red'">{{ (tab === 'income' ? '+' : '-') + fmt(total) }}</b></div>
       <MobileCatPie :kind="tab" :month="month" />
       <div style="display:flex;gap:10px;padding:12px 0 8px">
-        <div class="m-quick-btn m-quick-in" @click="incomeVisible = true">记一笔收入</div>
-        <div class="m-quick-btn m-quick-out" @click="expenseVisible = true">记一笔支出</div>
+        <div class="m-quick-btn m-quick-in" @click="openAdd('income')">记一笔收入</div>
+        <div class="m-quick-btn m-quick-out" @click="openAdd('expense')">记一笔支出</div>
       </div>
     </div>
     <MonthWheel v-if="monthWheelVisible" :model-value="month" @confirm="onMonth" @cancel="monthWheelVisible = false" />
-    <MobileMoneyDialog type="income" v-model:visible="incomeVisible" @saved="onSaved" />
-    <MobileMoneyDialog type="expense" v-model:visible="expenseVisible" @saved="onSaved" />
+    <MobileMoneyDialog type="income" v-model:visible="incomeVisible" :edit-row="editRow && tab === 'income' ? editRow : null" @saved="onSaved" />
+    <MobileMoneyDialog type="expense" v-model:visible="expenseVisible" :edit-row="editRow && tab === 'expense' ? editRow : null" @saved="onSaved" />
   </div></PullRefresh>`
 };
 
