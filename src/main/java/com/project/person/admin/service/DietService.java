@@ -66,6 +66,8 @@ public class DietService {
         checkDiet(dietRecord);
         dietRecord.setId(id);
         dietRecord.setUserId(UserContext.getUserId());
+        // 前端编辑可能不带 remark，置 null 会违反 NOT NULL 约束（create 有同样兜底）
+        dietRecord.setRemark(dietRecord.getRemark() == null ? "" : dietRecord.getRemark());
         if (dietRecordMapper.update(dietRecord) == 0) {
             throw BizException.badRequest("记录不存在或不属于当前用户");
         }

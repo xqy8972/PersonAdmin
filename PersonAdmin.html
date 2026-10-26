@@ -2093,9 +2093,9 @@ const WeightPage = {
         // 单食物旧记录无单条热量时，用记录总热量兜底，编辑页也能看到/修改该项热量
         if (foods.length === 1 && foods[0].kcal == null) foods[0].kcal = row.calories;
         dForm.value = { id: row.id, recordDate: row.recordDate, mealType: row.mealType,
-                        foods, origCal: row.calories };
+                        foods, origCal: row.calories, remark: row.remark || '' };
       } else {
-        dForm.value = { id: null, recordDate: todayStr(), mealType: '午餐', foods: [emptyFood()], origCal: 0 };
+        dForm.value = { id: null, recordDate: todayStr(), mealType: '午餐', foods: [emptyFood()], origCal: 0, remark: '' };
       }
       dDialog.value = true;
     };
@@ -2118,7 +2118,8 @@ const WeightPage = {
         return;
       }
       const payload = { recordDate: dForm.value.recordDate, mealType: dForm.value.mealType,
-                        food: buildFoodStr(foods), calories: totalKcal(foods, dForm.value.origCal) };
+                        food: buildFoodStr(foods), calories: totalKcal(foods, dForm.value.origCal),
+                        remark: dForm.value.remark || '' };
       try {
         if (dForm.value.id) await apiPut('/diet/' + dForm.value.id, payload);
         else await apiPost('/diet', payload);
@@ -2256,9 +2257,9 @@ const MobileHealthPage = {
         // 单食物旧记录无单条热量时，用记录总热量兜底，编辑页也能看到/修改该项热量
         if (foods.length === 1 && foods[0].kcal == null) foods[0].kcal = row.calories;
         dForm.value = { id: row.id, recordDate: row.recordDate, mealType: row.mealType,
-                        foods, origCal: row.calories };
+                        foods, origCal: row.calories, remark: row.remark || '' };
       } else {
-        dForm.value = { id: null, recordDate: filterDate.value, mealType: '午餐', foods: [emptyFood()], origCal: 0 };
+        dForm.value = { id: null, recordDate: filterDate.value, mealType: '午餐', foods: [emptyFood()], origCal: 0, remark: '' };
       }
       dDialog.value = true;
     };
@@ -2281,7 +2282,8 @@ const MobileHealthPage = {
         return;
       }
       const payload = { recordDate: dForm.value.recordDate, mealType: dForm.value.mealType,
-                        food: buildFoodStr(foods), calories: totalKcal(foods, dForm.value.origCal) };
+                        food: buildFoodStr(foods), calories: totalKcal(foods, dForm.value.origCal),
+                        remark: dForm.value.remark || '' };
       try {
         if (dForm.value.id) await apiPut('/diet/' + dForm.value.id, payload);
         else await apiPost('/diet', payload);
