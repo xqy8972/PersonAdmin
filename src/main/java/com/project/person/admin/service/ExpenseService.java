@@ -131,6 +131,8 @@ public class ExpenseService {
         assetFlowService.rollback(userId, AssetFlowService.REF_EXPENSE, id);
         expense.setId(id);
         expense.setUserId(userId);
+        // 前端某些入口可能不带 remark，置 null 会违反 NOT NULL 约束（create 有同样兜底）
+        expense.setRemark(expense.getRemark() == null ? "" : expense.getRemark());
         if (expenseMapper.update(expense) == 0) {
             throw BizException.badRequest("记录不存在或不属于当前用户");
         }

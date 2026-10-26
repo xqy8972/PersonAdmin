@@ -79,6 +79,8 @@ public class IncomeService {
         assetMapper.adjustValue(asset.getId(), userId, income.getAmount());
         income.setId(id);
         income.setUserId(userId);
+        // 前端某些入口可能不带 remark，置 null 会违反 NOT NULL 约束
+        income.setRemark(income.getRemark() == null ? "" : income.getRemark());
         if (incomeMapper.update(income) == 0) {
             throw BizException.badRequest("记录不存在或不属于当前用户");
         }

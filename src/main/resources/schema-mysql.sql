@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS expense (
     id            BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id       BIGINT        NOT NULL,
     amount        DECIMAL(12,2) NOT NULL,
-    category      VARCHAR(32)   NOT NULL,          -- 分类：餐饮/交通/住房/购物/娱乐/医疗/教育/其他
+    category      VARCHAR(32)   NOT NULL,          -- 分类：餐饮/交通/购物/软件服务费/家居/服装/模玩/游戏/旅游/娱乐/医疗/教育/其他/投资
     record_date   DATE          NOT NULL,
     asset_id      BIGINT        DEFAULT NULL,      -- 支付资产（仅现金/银行卡类别）
     investment_id BIGINT        DEFAULT NULL,      -- 分类为「投资」时关联的投资标的（资产减少联动投资增加）
