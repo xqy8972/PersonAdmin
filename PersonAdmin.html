@@ -607,7 +607,7 @@ const requireAmountAndAsset = f => {
 };
 
 const incomeCategories = ['工资', '奖金', '兼职', '理财收益', '红包', '其他'];
-const expenseCategories = ['餐饮', '交通', '购物', '软件服务费', '家居', '服装', '模玩', '游戏', '旅游', '娱乐', '医疗', '教育', '其他', '投资'];
+const expenseCategories = ['餐饮', '交通', '购物', '软件服务费', '家居', '家庭', '服装', '模玩', '游戏', '旅游', '娱乐', '医疗', '教育', '其他', '投资'];
 
 /* 支出类型为「投资」时追加的表单项：关联投资标的（金额从资产扣出并转入该投资） */
 const EXPENSE_INVEST_EXTRA = `
@@ -632,7 +632,7 @@ const ExpenseRecognize = {
     const analyzing = ref(false);
     const stage = ref(''); // 识别阶段：'ocr' 本地文字提取 / 'ai' AI 解析
     const cashAssets = ref([]);
-    const categories = ['餐饮', '交通', '购物', '软件服务费', '家居', '服装', '模玩', '游戏', '旅游', '娱乐', '医疗', '教育', '其他'];
+    const categories = ['餐饮', '交通', '购物', '软件服务费', '家居', '家庭', '服装', '模玩', '游戏', '旅游', '娱乐', '医疗', '教育', '其他'];
     const loadAssets = async () => {
       const data = await apiGet('/asset/list').catch(() => []);
       const arr = Array.isArray(data) ? data : (data ? data.list || [] : []);
@@ -1914,9 +1914,9 @@ const WeightTrendChart = {
         grid: { left: 10, right: 14, top: 24, bottom: 4, containLabel: true },
         tooltip: { trigger: 'axis', valueFormatter: v => v + ' kg' },
         xAxis: {
-          type: 'category', boundaryGap: false, data: recs.map(r => (r.recordDate || '').slice(5)),
+          type: 'time', boundaryGap: false,
           axisLine: { lineStyle: { color: 'rgba(0,0,0,0.12)' } },
-          axisTick: { show: false }, axisLabel: { color: '#86868b', interval: 'auto' }
+          axisTick: { show: false }, axisLabel: { color: '#86868b', formatter: v => echarts.format.formatTime('MM-dd', v) }
         },
         yAxis: {
           type: 'value', scale: true,
@@ -1925,7 +1925,8 @@ const WeightTrendChart = {
         },
         series: [{
           name: '体重', type: 'line', smooth: false, symbol: 'circle', symbolSize: 6,
-          data: recs.map(r => r.weight),
+          /* 时间轴 + [日期,体重] 数据点：没记录的天数不占刻度，但 1 号到 4 号之间会按真实日期空出间距 */
+          data: recs.map(r => [r.recordDate, r.weight]),
           lineStyle: { width: 2.5, color: '#007aff' }, itemStyle: { color: '#007aff', borderColor: '#fff', borderWidth: 2 },
           areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(0,122,255,0.15)' }, { offset: 1, color: 'rgba(0,122,255,0.02)' }]) }
         }]
